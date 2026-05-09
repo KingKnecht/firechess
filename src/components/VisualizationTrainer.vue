@@ -67,6 +67,14 @@
             </div>
 
             <div class="panel-section">
+              <div class="section-title">Recall mode</div>
+              <div class="radio-group">
+                <label><input type="radio" value="recall" v-model="recallMode" /> 🧩 Place all pieces (standard)</label>
+                <label><input type="radio" value="guided" v-model="recallMode" /> 🎯 Guided — identify one piece at a time</label>
+              </div>
+            </div>
+
+            <div class="panel-section">
               <div class="section-title">Piece count filter (for "Find match")</div>
               <div class="range-row">
                 <label>Min <input type="number" min="1" max="32" v-model.number="minPieces" class="num-input" /></label>
@@ -217,6 +225,79 @@
         </div>
       </template>
 
+      <!-- ══════════════ GUIDED ══════════════ -->
+      <template v-else-if="phase === 'guided'">
+        <div class="game-layout">
+          <!-- Board: shows zone, highlights current target square -->
+          <div class="viz-board large">
+            <div
+              v-for="sq in squares"
+              :key="sq"
+              class="viz-sq"
+              :class="[
+                squareColor(sq),
+                visibleSet.has(sq) ? 'in-zone' : 'out-zone',
+                sq === guidedCurrentSq ? (guidedFlash ? `guided-flash-${guidedFlash}` : 'guided-target') : '',
+              ]"
+            >
+              <!-- Show already-identified pieces dimmed -->
+              <img
+                v-if="guidedResults.find(r => r.sq === sq)"
+                class="piece"
+                :class="guidedResults.find(r => r.sq === sq)?.correct ? 'guided-done-ok' : 'guided-done-wrong'"
+                :src="pieceUrl(targetBoard[sq].color, targetBoard[sq].type)"
+              />
+              <!-- Question mark on the active square -->
+              <span v-else-if="sq === guidedCurrentSq" class="guided-qmark">?</span>
+              <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
+              <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+            </div>
+          </div>
+
+          <div class="side-panel">
+            <div class="phase-title">🎯 Guided Recall</div>
+            <p class="phase-hint">
+              What piece is on <strong>{{ guidedCurrentSq }}</strong>?<br>
+              <span class="guided-progress">{{ guidedIdx + 1 }} / {{ guidedSquares.length }}</span>
+            </p>
+
+            <!-- Flash feedback -->
+            <div v-if="guidedFlash" class="guided-feedback" :class="guidedFlash">
+              {{ guidedFlash === 'correct' ? '✓ Correct!' : '✗ Wrong' }}
+            </div>
+
+            <!-- Piece picker — respects piecePool setting -->
+            <div class="guided-palette">
+              <template v-if="piecePool === 'full'">
+                <div class="palette-label">White</div>
+                <div class="palette-row">
+                  <div v-for="p in guidedPalette.filter(p => p.color === 'w')" :key="p.key"
+                    class="palette-piece" @click="onGuidedPick(p)">
+                    <img class="palette-img" :src="pieceUrl(p.color, p.type)" />
+                  </div>
+                </div>
+                <div class="palette-label">Black</div>
+                <div class="palette-row">
+                  <div v-for="p in guidedPalette.filter(p => p.color === 'b')" :key="p.key"
+                    class="palette-piece" @click="onGuidedPick(p)">
+                    <img class="palette-img" :src="pieceUrl(p.color, p.type)" />
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <div class="palette-label">Pieces in zone</div>
+                <div class="palette-row">
+                  <div v-for="p in guidedPalette" :key="p.key"
+                    class="palette-piece" @click="onGuidedPick(p)">
+                    <img class="palette-img" :src="pieceUrl(p.color, p.type)" />
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- ══════════════ RESULT ══════════════ -->
       <template v-else-if="phase === 'result'">
         <div class="game-layout">
@@ -227,8 +308,11 @@
               class="viz-sq"
               :class="[squareColor(sq), visibleSet.has(sq) ? 'in-zone' : 'out-zone', resultClass(sq)]"
             >
-              <img v-if="visibleSet.has(sq) && (showSolution ? targetBoard[sq] : userBoard[sq])" class="piece"
-                :src="pieceUrl((showSolution ? targetBoard[sq] : userBoard[sq]).color, (showSolution ? targetBoard[sq] : userBoard[sq]).type)"
+              <img v-if="visibleSet.has(sq) && (recallMode === 'guided' ? targetBoard[sq] : (showSolution ? targetBoard[sq] : userBoard[sq]))" class="piece"
+                :src="pieceUrl(
+                  (recallMode === 'guided' ? targetBoard[sq] : (showSolution ? targetBoard[sq] : userBoard[sq])).color,
+                  (recallMode === 'guided' ? targetBoard[sq] : (showSolution ? targetBoard[sq] : userBoard[sq])).type
+                )"
               />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
@@ -250,7 +334,7 @@
             </div>
 
             <div class="result-actions">
-              <button class="panel-btn" @click="showSolution = !showSolution">
+              <button v-if="recallMode !== 'guided'" class="panel-btn" @click="showSolution = !showSolution">
                 {{ showSolution ? 'Show my answer' : 'Show solution' }}
               </button>
               <button class="panel-btn" @click="startStudy">↺ Try again</button>
@@ -328,7 +412,7 @@ onMounted(async () => {
 
 // ── Training state ────────────────────────────────────────────────────────────
 
-const phase       = ref('setup')  // 'setup' | 'study' | 'recall' | 'result'
+const phase       = ref('setup')  // 'setup' | 'study' | 'recall' | 'guided' | 'result'
 const targetBoard = ref({})       // {square → {type,color}} — visible zone of chosen position
 const userBoard   = reactive({})  // user's placements
 const countdown   = ref(0)
@@ -336,7 +420,14 @@ const dragOver    = ref(null)
 const selectedPalettePiece = ref(null) // { color, type } — for click-to-place
 const selectedBoardSq = ref(null)      // square string — for click-to-move on board
 const showSolution = ref(false)
+const recallMode  = ref('recall') // 'recall' | 'guided'
 let timer = null
+
+// ── Guided mode state ─────────────────────────────────────────────────────────
+const guidedSquares   = ref([])   // ordered list of squares-with-pieces to identify
+const guidedIdx       = ref(0)    // which square we're currently on
+const guidedResults   = ref([])   // { sq, expected, given, correct } per square
+const guidedFlash     = ref(null) // 'correct' | 'wrong' — for brief feedback
 
 // ── Zone computation ──────────────────────────────────────────────────────────
 
@@ -576,7 +667,65 @@ function startRecall() {
   showSolution.value = false
   selectedPalettePiece.value = null
   selectedBoardSq.value = null
-  phase.value = 'recall'
+  if (recallMode.value === 'guided') {
+    startGuided()
+  } else {
+    phase.value = 'recall'
+  }
+}
+
+// ── Guided mode ───────────────────────────────────────────────────────────────
+
+function startGuided() {
+  // Collect squares-with-pieces in the zone, shuffle them
+  const occupied = [...visibleSet.value].filter(sq => targetBoard.value[sq])
+  guidedSquares.value = occupied.sort(() => Math.random() - 0.5)
+  guidedIdx.value = 0
+  guidedResults.value = []
+  guidedFlash.value = null
+  phase.value = 'guided'
+}
+
+const guidedCurrentSq = computed(() => guidedSquares.value[guidedIdx.value] ?? null)
+
+// Full palette for guided mode — respects piecePool setting
+const guidedPalette = computed(() => {
+  if (piecePool.value === 'full') {
+    const types = ['k', 'q', 'r', 'b', 'n', 'p']
+    return ['w', 'b'].flatMap(color => types.map(type => ({ key: color + type, color, type })))
+  }
+  // 'visible': only piece types actually present in the target zone
+  const seen = new Set()
+  const pieces = []
+  for (const p of Object.values(targetBoard.value)) {
+    const key = p.color + p.type
+    if (!seen.has(key)) { seen.add(key); pieces.push({ key, color: p.color, type: p.type }) }
+  }
+  // Sort: white first, then by piece value order
+  const order = ['k','q','r','b','n','p']
+  pieces.sort((a, b) => {
+    if (a.color !== b.color) return a.color === 'w' ? -1 : 1
+    return order.indexOf(a.type) - order.indexOf(b.type)
+  })
+  return pieces
+})
+
+function onGuidedPick(piece) {
+  if (guidedFlash.value) return // ignore during flash
+  const sq = guidedCurrentSq.value
+  if (!sq) return
+  const expected = targetBoard.value[sq]
+  const correct = expected.color === piece.color && expected.type === piece.type
+  guidedResults.value.push({ sq, expected, given: piece, correct })
+  guidedFlash.value = correct ? 'correct' : 'wrong'
+  setTimeout(() => {
+    guidedFlash.value = null
+    if (guidedIdx.value < guidedSquares.value.length - 1) {
+      guidedIdx.value++
+    } else {
+      phase.value = 'result' // all done
+    }
+  }, 700)
 }
 
 function checkResult() {
@@ -602,6 +751,10 @@ async function nextPosition() {
 // ── Score & result ────────────────────────────────────────────────────────────
 
 const score = computed(() => {
+  if (recallMode.value === 'guided') {
+    const correct = guidedResults.value.filter(r => r.correct).length
+    return { correct, total: guidedResults.value.length }
+  }
   let correct = 0, total = 0
   for (const sq of visibleSet.value) {
     const t = targetBoard.value[sq]
@@ -616,6 +769,11 @@ const score = computed(() => {
 function resultClass(sq) {
   if (!visibleSet.value.has(sq)) return ''
   const t = targetBoard.value[sq]
+  if (recallMode.value === 'guided') {
+    const r = guidedResults.value.find(x => x.sq === sq)
+    if (!r) return ''
+    return r.correct ? 'result-correct' : 'result-wrong'
+  }
   const u = userBoard[sq]
   if (!t && !u) return ''
   if (t && u && t.type === u.type && t.color === u.color) return 'result-correct'
@@ -839,6 +997,33 @@ function onClickTray() {
 .viz-sq.result-wrong   { background: #e67e22 !important; filter: none; }
 .viz-sq.result-missing { background: #c0392b !important; filter: none; }
 .viz-sq.result-extra   { background: #f1c40f !important; filter: none; }
+
+/* Guided mode */
+.viz-sq.guided-target  { background: #f6f669cc !important; filter: none; }
+.viz-sq.guided-flash-correct { background: #27ae60 !important; filter: none; }
+.viz-sq.guided-flash-wrong   { background: #e74c3c !important; filter: none; }
+.guided-qmark {
+  font-size: 2rem;
+  font-weight: 900;
+  color: #555;
+  pointer-events: none;
+  z-index: 2;
+}
+.piece.guided-done-ok    { opacity: 0.6; }
+.piece.guided-done-wrong { opacity: 0.25; }
+
+.guided-palette { margin-top: 8px; }
+.guided-progress { font-size: 0.8rem; color: #888; }
+.guided-feedback {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 6px 0;
+  border-radius: 6px;
+  margin: 4px 0;
+}
+.guided-feedback.correct { color: #27ae60; }
+.guided-feedback.wrong   { color: #c0392b; }
 
 .piece {
   width: 88%;
