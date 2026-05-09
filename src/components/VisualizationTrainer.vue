@@ -71,6 +71,7 @@
               <div class="radio-group">
                 <label><input type="radio" value="recall" v-model="recallMode" /> 🧩 Place all pieces (standard)</label>
                 <label><input type="radio" value="guided" v-model="recallMode" /> 🎯 Guided — identify one piece at a time</label>
+                <label><input type="radio" value="incremental" v-model="recallMode" /> 🌱 Incremental — grow from a seed piece</label>
               </div>
             </div>
 
@@ -298,6 +299,169 @@
         </div>
       </template>
 
+      <!-- ══════════════ INCREMENTAL STUDY ══════════════ -->
+      <template v-else-if="phase === 'incremental-study'">
+        <div class="game-layout">
+          <div class="viz-board large">
+            <div v-for="sq in squares" :key="sq" class="viz-sq"
+              :class="[squareColor(sq), incrRevealedSqs.includes(sq) ? 'in-zone' : 'out-zone']">
+              <img v-if="incrRevealedSqs.includes(sq) && incrFullBoard[sq]" class="piece"
+                :src="pieceUrl(incrFullBoard[sq].color, incrFullBoard[sq].type)" />
+              <!-- Next-to-reveal hint: highlight neighbors of revealed set -->
+              <span v-else-if="isNextNeighbor(sq)" class="incr-neighbor-hint" />
+              <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
+              <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+            </div>
+          </div>
+          <div class="side-panel">
+            <div class="phase-title">🌱 Memorize!</div>
+            <p class="phase-hint">
+              Stage <strong>{{ incrStage }}</strong> / {{ incrAllSqs.length }}<br>
+              Remember the <strong>{{ incrRevealedSqs.length }}</strong> piece{{ incrRevealedSqs.length !== 1 ? 's' : '' }} shown.
+            </p>
+            <div class="countdown-ring-wrap">
+              <svg viewBox="0 0 60 60" class="countdown-svg">
+                <circle cx="30" cy="30" r="28" fill="none" stroke="#eee" stroke-width="4"/>
+                <circle cx="30" cy="30" r="28" fill="none" stroke="#b58863" stroke-width="4"
+                  stroke-dasharray="175.9"
+                  :stroke-dashoffset="175.9 * (1 - countdown / showTime)"
+                  stroke-linecap="round" transform="rotate(-90 30 30)"/>
+                <text x="30" y="35" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">{{ countdown }}</text>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ══════════════ INCREMENTAL RECALL ══════════════ -->
+      <template v-else-if="phase === 'incremental-recall'">
+        <div class="game-layout">
+          <div class="viz-board large"
+            @dragover.prevent @drop.prevent>
+            <div v-for="sq in squares" :key="sq"
+              class="viz-sq"
+              :class="[squareColor(sq),
+                incrRevealedSqs.includes(sq) ? 'in-zone recall-target' : 'out-zone',
+                dragOver === sq ? 'drag-over' : '',
+                selectedBoardSq === sq ? 'sq-selected' : '']"
+              @click="onClickSquare(sq)"
+              @dragover.prevent="incrRevealedSqs.includes(sq) && (dragOver = sq)"
+              @dragleave="dragOver = null"
+              @drop.prevent="onIncrDropSquare(sq, $event)"
+              @contextmenu.prevent="incrRevealedSqs.includes(sq) && removePiece(sq)"
+            >
+              <img v-if="userBoard[sq]" class="piece draggable"
+                :src="pieceUrl(userBoard[sq].color, userBoard[sq].type)"
+                draggable="true"
+                @dragstart="onDragFromBoard(sq, $event)"
+                @dragend="dragOver = null" />
+              <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
+              <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+            </div>
+          </div>
+          <div class="side-panel" @dragover.prevent @drop.prevent="onDropPalette($event)" @click="onClickTray">
+            <div class="phase-title">🌱 Recall!</div>
+            <p class="phase-hint">
+              Stage <strong>{{ incrStage }}</strong> / {{ incrAllSqs.length }}<br>
+              Tap a piece then tap its square.<br>
+              Right-click / long-press to remove.
+            </p>
+            <div class="palette-section">
+              <div class="palette-label">White</div>
+              <div class="palette-row">
+                <div v-for="p in incrPalette.filter(p => p.color === 'w')" :key="p.key"
+                  class="palette-piece"
+                  :class="{ 'palette-selected': selectedPalettePiece?.color === p.color && selectedPalettePiece?.type === p.type }"
+                  :draggable="true"
+                  @dragstart="onDragFromPalette(p, $event)"
+                  @click.stop="onClickPalette(p)">
+                  <img class="palette-img" :src="pieceUrl(p.color, p.type)" />
+                </div>
+              </div>
+              <div class="palette-label">Black</div>
+              <div class="palette-row">
+                <div v-for="p in incrPalette.filter(p => p.color === 'b')" :key="p.key"
+                  class="palette-piece"
+                  :class="{ 'palette-selected': selectedPalettePiece?.color === p.color && selectedPalettePiece?.type === p.type }"
+                  :draggable="true"
+                  @dragstart="onDragFromPalette(p, $event)"
+                  @click.stop="onClickPalette(p)">
+                  <img class="palette-img" :src="pieceUrl(p.color, p.type)" />
+                </div>
+              </div>
+            </div>
+            <button class="start-btn" @click.stop="incrCheck">✓ Check</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- ══════════════ INCREMENTAL RESULT ══════════════ -->
+      <template v-else-if="phase === 'incremental-result'">
+        <div class="game-layout">
+          <div class="viz-board large">
+            <div v-for="sq in squares" :key="sq" class="viz-sq"
+              :class="[squareColor(sq),
+                incrRevealedSqs.includes(sq) ? 'in-zone' : 'out-zone',
+                incrResultClass(sq)]">
+              <img v-if="incrRevealedSqs.includes(sq) && incrFullBoard[sq]" class="piece"
+                :src="pieceUrl(incrFullBoard[sq].color, incrFullBoard[sq].type)" />
+              <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
+              <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+            </div>
+          </div>
+          <div class="side-panel">
+            <div class="phase-title">Stage {{ incrStage }} Result</div>
+            <div class="score-box">
+              <span class="score-num">{{ incrScore.correct }}/{{ incrScore.total }}</span>
+              <span class="score-label">pieces correct</span>
+            </div>
+            <div v-if="incrScore.correct / incrScore.total >= INCR_PASS_THRESHOLD" class="incr-pass-msg">
+              ✓ Stage passed!
+              <span v-if="incrStage >= incrAllSqs.length"> All pieces memorized! 🏆</span>
+            </div>
+            <div v-else class="incr-fail-msg">Try again to advance</div>
+            <div class="result-legend">
+              <div><span class="legend-dot correct" /> Correct</div>
+              <div><span class="legend-dot wrong" /> Wrong</div>
+              <div><span class="legend-dot missing" /> Missing</div>
+            </div>
+            <div class="result-actions">
+              <button
+                v-if="incrScore.correct / incrScore.total >= INCR_PASS_THRESHOLD && incrStage < incrAllSqs.length"
+                class="start-btn" @click="incrAdvance">▶ Next piece →</button>
+              <button
+                v-else-if="incrStage >= incrAllSqs.length"
+                class="start-btn" @click="nextPosition">↻ New position</button>
+              <button class="panel-btn" @click="incrRetry">↺ Retry stage</button>
+              <button class="panel-btn danger" @click="phase = 'setup'">✕ End training</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ══════════════ INCREMENTAL DONE ══════════════ -->
+      <template v-else-if="phase === 'incremental-done'">
+        <div class="game-layout">
+          <div class="viz-board large">
+            <div v-for="sq in squares" :key="sq" class="viz-sq"
+              :class="[squareColor(sq), incrFullBoard[sq] ? 'in-zone' : 'out-zone']">
+              <img v-if="incrFullBoard[sq]" class="piece"
+                :src="pieceUrl(incrFullBoard[sq].color, incrFullBoard[sq].type)" />
+              <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
+              <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+            </div>
+          </div>
+          <div class="side-panel">
+            <div class="phase-title">🏆 Complete!</div>
+            <p class="phase-hint">You memorized all {{ incrAllSqs.length }} pieces in this position.</p>
+            <div class="result-actions">
+              <button class="start-btn" @click="nextPosition">↻ New position</button>
+              <button class="panel-btn danger" @click="phase = 'setup'">✕ End training</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- ══════════════ RESULT ══════════════ -->
       <template v-else-if="phase === 'result'">
         <div class="game-layout">
@@ -420,7 +584,7 @@ const dragOver    = ref(null)
 const selectedPalettePiece = ref(null) // { color, type } — for click-to-place
 const selectedBoardSq = ref(null)      // square string — for click-to-move on board
 const showSolution = ref(false)
-const recallMode  = ref('recall') // 'recall' | 'guided'
+const recallMode  = ref('recall') // 'recall' | 'guided' | 'incremental'
 let timer = null
 
 // ── Guided mode state ─────────────────────────────────────────────────────────
@@ -428,6 +592,13 @@ const guidedSquares   = ref([])   // ordered list of squares-with-pieces to iden
 const guidedIdx       = ref(0)    // which square we're currently on
 const guidedResults   = ref([])   // { sq, expected, given, correct } per square
 const guidedFlash     = ref(null) // 'correct' | 'wrong' — for brief feedback
+
+// ── Incremental mode state ────────────────────────────────────────────────────
+const incrRevealedSqs = ref([])   // squares revealed so far (ordered by proximity growth)
+const incrAllSqs      = ref([])   // full ordered sequence for this position
+const incrStage       = ref(0)    // how many pieces revealed so far
+const incrFullBoard   = ref({})   // full board snapshot for the position (whole board, not just zone)
+const INCR_PASS_THRESHOLD = 0.8   // 80% correct to advance
 
 // ── Zone computation ──────────────────────────────────────────────────────────
 
@@ -669,6 +840,8 @@ function startRecall() {
   selectedBoardSq.value = null
   if (recallMode.value === 'guided') {
     startGuided()
+  } else if (recallMode.value === 'incremental') {
+    startIncremental()
   } else {
     phase.value = 'recall'
   }
@@ -710,6 +883,28 @@ const guidedPalette = computed(() => {
   return pieces
 })
 
+// Incremental: show subtle hint for squares adjacent to current cluster
+function isNextNeighbor(sq) {
+  if (incrRevealedSqs.value.includes(sq)) return false
+  if (incrFullBoard.value[sq]) return false // only empty neighbors
+  return incrRevealedSqs.value.some(r => sqDist(r, sq) === 1)
+}
+
+function onIncrDropSquare(sq, e) {
+  if (!incrRevealedSqs.value.includes(sq)) return
+  dragOver.value = null
+  const data = e.dataTransfer.getData('text/plain')
+  if (!data) return
+  if (data.startsWith('palette:')) {
+    const [, color, type] = data.split(':')
+    userBoard[sq] = { color, type }
+  } else if (data.startsWith('board:')) {
+    const from = data.slice(6)
+    if (from !== sq) { userBoard[sq] = userBoard[from]; delete userBoard[from] }
+  }
+}
+
+
 function onGuidedPick(piece) {
   if (guidedFlash.value) return // ignore during flash
   const sq = guidedCurrentSq.value
@@ -731,6 +926,155 @@ function onGuidedPick(piece) {
 function checkResult() {
   phase.value = 'result'
 }
+
+// ── Incremental mode ──────────────────────────────────────────────────────────
+
+// Chebyshev distance between two squares
+function sqDist(a, b) {
+  const dfi = Math.abs(a.charCodeAt(0) - b.charCodeAt(0))
+  const dri = Math.abs(parseInt(a[1]) - parseInt(b[1]))
+  return Math.max(dfi, dri)
+}
+
+// Build proximity-ordered sequence from the full board:
+// start from king cluster, grow outward by min Chebyshev distance to revealed set
+function buildIncrSequence(board) {
+  const occupied = Object.keys(board)
+  if (!occupied.length) return []
+
+  // Seed: prefer kings (natural anchors), else most-central piece
+  const kings = occupied.filter(sq => board[sq].type === 'k')
+  const seed = kings.length
+    ? kings[Math.floor(Math.random() * kings.length)]
+    : occupied.reduce((best, sq) => {
+        const fi = sq.charCodeAt(0) - 97, ri = parseInt(sq[1]) - 1
+        const dist = Math.abs(fi - 3.5) + Math.abs(ri - 3.5)
+        const bfi = best.charCodeAt(0) - 97, bri = parseInt(best[1]) - 1
+        const bdist = Math.abs(bfi - 3.5) + Math.abs(bri - 3.5)
+        return dist < bdist ? sq : best
+      }, occupied[0])
+
+  const revealed = [seed]
+  const remaining = new Set(occupied.filter(sq => sq !== seed))
+
+  while (remaining.size > 0) {
+    // Find the remaining square with minimum distance to any revealed square
+    // Ties broken randomly (shuffle candidates with equal min distance)
+    let minDist = Infinity
+    let candidates = []
+    for (const sq of remaining) {
+      const d = Math.min(...revealed.map(r => sqDist(sq, r)))
+      if (d < minDist) { minDist = d; candidates = [sq] }
+      else if (d === minDist) candidates.push(sq)
+    }
+    // Pick randomly among equally-close candidates
+    const next = candidates[Math.floor(Math.random() * candidates.length)]
+    revealed.push(next)
+    remaining.delete(next)
+  }
+
+  return revealed
+}
+
+function startIncremental() {
+  // Use the full board (whole position, not just zone) for incremental mode
+  const fullBoard = fenToBoard(positions.value[moveIndex.value])
+  incrFullBoard.value = fullBoard
+  incrAllSqs.value = buildIncrSequence(fullBoard)
+  // Start with 1 piece revealed (the seed)
+  incrStage.value = 1
+  incrRevealedSqs.value = [incrAllSqs.value[0]]
+  startIncrStudy()
+}
+
+// The targetBoard for incremental = only currently revealed squares
+const incrTargetBoard = computed(() => {
+  const tb = {}
+  for (const sq of incrRevealedSqs.value) {
+    if (incrFullBoard.value[sq]) tb[sq] = incrFullBoard.value[sq]
+  }
+  return tb
+})
+
+// Incremental score (recall mode: userBoard vs incrTargetBoard)
+const incrScore = computed(() => {
+  let correct = 0, total = 0
+  for (const sq of incrRevealedSqs.value) {
+    const t = incrFullBoard.value[sq]
+    if (!t) continue
+    total++
+    const u = userBoard[sq]
+    if (u && u.type === t.type && u.color === t.color) correct++
+  }
+  return { correct, total }
+})
+
+function incrResultClass(sq) {
+  const t = incrFullBoard.value[sq]
+  const u = userBoard[sq]
+  if (!incrRevealedSqs.value.includes(sq)) return ''
+  if (!t && !u) return ''
+  if (t && u && t.type === u.type && t.color === u.color) return 'result-correct'
+  if (t && u) return 'result-wrong'
+  if (t && !u) return 'result-missing'
+  if (!t && u) return 'result-extra'
+  return ''
+}
+
+function incrCheck() {
+  phase.value = 'incremental-result'
+}
+
+function incrAdvance() {
+  // Clear user board, reveal next piece, go back to study
+  for (const sq of Object.keys(userBoard)) delete userBoard[sq]
+  const next = incrStage.value
+  if (next < incrAllSqs.value.length) {
+    incrStage.value++
+    incrRevealedSqs.value = incrAllSqs.value.slice(0, incrStage.value)
+  }
+  // If all pieces revealed, we're done — go to final result
+  if (incrStage.value >= incrAllSqs.value.length) {
+    phase.value = 'incremental-done'
+    return
+  }
+  startIncrStudy()
+}
+
+function incrRetry() {
+  for (const sq of Object.keys(userBoard)) delete userBoard[sq]
+  startIncrStudy()
+}
+
+function startIncrStudy() {
+  // Temporarily set targetBoard to current revealed set for the study phase
+  // We reuse the existing 'study' phase display with a special flag
+  phase.value = 'incremental-study'
+  countdown.value = showTime.value
+  clearInterval(timer)
+  timer = setInterval(() => {
+    countdown.value--
+    if (countdown.value <= 0) { clearInterval(timer); phase.value = 'incremental-recall' }
+  }, 1000)
+}
+
+// Palette for incremental (always "visible" = only pieces in current revealed set)
+const incrPalette = computed(() => {
+  const seen = new Set()
+  const pieces = []
+  for (const sq of incrRevealedSqs.value) {
+    const p = incrFullBoard.value[sq]
+    if (!p) continue
+    const key = p.color + p.type
+    if (!seen.has(key)) { seen.add(key); pieces.push({ key, color: p.color, type: p.type }) }
+  }
+  const order = ['k','q','r','b','n','p']
+  pieces.sort((a, b) => {
+    if (a.color !== b.color) return a.color === 'w' ? -1 : 1
+    return order.indexOf(a.type) - order.indexOf(b.type)
+  })
+  return pieces
+})
 
 function handleBack() {
   clearInterval(timer)
@@ -862,7 +1206,12 @@ function onClickPalette(piece) {
 }
 
 function onClickSquare(sq) {
-  if (!visibleSet.value.has(sq)) return
+  const inIncremental = phase.value === 'incremental-recall'
+  if (inIncremental) {
+    if (!incrRevealedSqs.value.includes(sq)) return
+  } else {
+    if (!visibleSet.value.has(sq)) return
+  }
 
   // A palette piece is selected → place it
   if (selectedPalettePiece.value) {
@@ -1359,6 +1708,38 @@ function onClickTray() {
 .legend-dot.extra   { background: #f1c40f; }
 
 .result-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Incremental mode ── */
+.incr-pass-msg {
+  background: #e8f5e9;
+  color: #27ae60;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.incr-fail-msg {
+  background: #fff3e0;
+  color: #e67e22;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.incr-neighbor-hint {
+  position: absolute;
+  inset: 30%;
+  border-radius: 50%;
+  background: rgba(181,136,99,0.25);
+  pointer-events: none;
+}
+.countdown-ring-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0;
+}
+.countdown-svg { width: 80px; height: 80px; }
+.recall-target { cursor: crosshair; }
 
 @media (max-width: 680px) {
   .setup-panel, .side-panel { width: 100%; max-width: 520px; }

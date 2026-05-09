@@ -1,7 +1,10 @@
 <template>
   <div class="app">
     <!-- Start / home screen -->
-    <StartPage v-if="view === 'home'" @select="handleStartSelect" />
+    <StartPage v-if="view === 'home'" @select="handleStartSelect" @settings="openSettings" />
+
+    <!-- Settings page -->
+    <SettingsPage v-else-if="view === 'settings'" @back="view = prevView" />
 
     <!-- Board editor -->
     <BoardEditor v-else-if="view === 'editor'" @back="goHome" />
@@ -17,7 +20,7 @@
       <header class="app-header">
         <button class="back-btn" @click="goHome">← Home</button>
         <h1>♛ FireChess</h1>
-        <div class="header-spacer" />
+        <button class="settings-btn" @click="openSettings" title="Settings">⚙️</button>
       </header>
 
       <main class="app-main">
@@ -37,6 +40,9 @@
           :active-turn="turn"
           :my-color="mode === 'online' ? onlineMyColor : null"
           :promotion-pending="promotionPending"
+          :show-all-square-names="showAllSquareNames"
+          :show-move-flash="showMoveFlash"
+          :last-move-to="lastMoveTo"
           @square-click="onSquareClick"
           @drop="onDrop"
           @promote="confirmPromotion"
@@ -100,11 +106,13 @@ import StartPage from './components/StartPage.vue'
 import BoardEditor from './components/BoardEditor.vue'
 import VisualizationTrainer from './components/VisualizationTrainer.vue'
 import BotSettings from './components/BotSettings.vue'
+import SettingsPage from './components/SettingsPage.vue'
 import { useChessGame } from './composables/useChessGame.js'
 import { useOnlineGame } from './composables/useOnlineGame.js'
 import { useEvaluation } from './composables/useEvaluation.js'
 import { useBotGame } from './composables/useBotGame.js'
 import { useChessClock } from './composables/useChessClock.js'
+import { showAllSquareNames, showMoveFlash, moveFlashContent } from './composables/useSettings.js'
 
 const {
   fen,
@@ -160,7 +168,22 @@ const {
 
 const mode = ref('local')
 const view = ref('home')
-const timeControl = ref(null) // { minutes, increment } or null = untimed
+const prevView = ref('home')
+const timeControl = ref(null)
+
+function openSettings() {
+  prevView.value = view.value
+  view.value = 'settings'
+}
+
+// Track last move destination for board flash animation
+const lastMoveTo = ref(null)
+watch(() => moveHistory.value.length, () => {
+  const hist = moveHistory.value
+  if (!hist.length) { lastMoveTo.value = null; return }
+  const last = hist[hist.length - 1]
+  lastMoveTo.value = moveFlashContent.value === 'pgn' ? (last?.san ?? null) : (last?.to ?? null)
+})
 
 // Colors: playerColor = color player chose; BOT_COLOR = opposite
 const playerColor = ref('w')
@@ -411,7 +434,20 @@ body {
 }
 .back-btn:hover { background: rgba(240,217,181,0.15); }
 
-.header-spacer { width: 90px; }
+.settings-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: #f0d9b5;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  line-height: 1;
+  min-width: 90px;
+  text-align: right;
+}
+.settings-btn:hover { background: rgba(240,217,181,0.15); border-color: #f0d9b5; }
 
 .board-area {
   display: flex;

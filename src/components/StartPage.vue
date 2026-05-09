@@ -96,11 +96,15 @@
         </div>
       </section>
     </main>
+
+    <footer class="start-footer">
+      <button class="footer-btn" @click="$emit('settings')">⚙️ Settings</button>
+    </footer>
   </div>
 </template>
 
 <script setup>
-defineEmits(['select'])
+defineEmits(['select', 'settings'])
 
 const timeGroups = [
   {
@@ -286,4 +290,23 @@ const trainingOptions = [
   .start-main { padding: 24px 12px; }
   .card { width: 100%; max-width: 360px; }
 }
+
+.start-footer {
+  padding: 16px 24px;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid #2a2a2a;
+  margin-top: auto;
+}
+.footer-btn {
+  background: none;
+  border: 1px solid #444;
+  color: #888;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.footer-btn:hover { color: #f0d9b5; border-color: #666; }
 </style>

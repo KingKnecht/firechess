@@ -12,16 +12,21 @@
         :flipped="flipped"
         :showPromotion="promotionPending?.from === square"
         :canDrag="canInteract(square)"
+        :showAllSquareNames="showAllSquareNames"
         @click="onSquareClick(square)"
         @drop="onDrop"
         @promote="$emit('promote', $event)"
       />
+      <!-- Move flash overlay -->
+      <transition name="flash-fade">
+        <div v-if="flashLabel" :key="flashKey" class="move-flash">{{ flashLabel }}</div>
+      </transition>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Chess } from 'chess.js'
 import ChessSquare from './ChessSquare.vue'
 
@@ -30,12 +35,28 @@ const props = defineProps({
   selectedSquare: String,
   legalMoves: Array,
   flipped: Boolean,
-  activeTurn: String,           // 'w' | 'b' — which color is allowed to interact
-  myColor: { type: String, default: null }, // null = local (both sides), 'w'/'b' = online
+  activeTurn: String,
+  myColor: { type: String, default: null },
   promotionPending: Object,
+  showAllSquareNames: { type: Boolean, default: false },
+  showMoveFlash:      { type: Boolean, default: true },
+  lastMoveTo:         { type: String,  default: null },
 })
 
 const emit = defineEmits(['square-click', 'drop', 'promote'])
+
+// ── Move flash ────────────────────────────────────────────────────────────────
+const flashLabel = ref(null)
+const flashKey   = ref(0)
+let flashTimer = null
+
+watch(() => props.lastMoveTo, (sq) => {
+  if (!props.showMoveFlash || !sq) return
+  clearTimeout(flashTimer)
+  flashLabel.value = sq
+  flashKey.value++
+  flashTimer = setTimeout(() => { flashLabel.value = null }, 900)
+})
 
 // All squares in display order (a8→h1 default, flipped = a1→h8)
 const squares = computed(() => {
@@ -111,5 +132,33 @@ function onDrop({ from, to }) {
   border-radius: 4px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   overflow: hidden;
+  position: relative;
 }
+
+/* ── Move flash overlay ── */
+.move-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  font-size: clamp(3rem, 10vw, 6rem);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.7), 0 0 32px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 20;
+  animation: moveFlash 0.9s ease-out forwards;
+  white-space: nowrap;
+}
+
+@keyframes moveFlash {
+  0%   { transform: translate(-50%, -50%) scale(2.2); opacity: 1; }
+  20%  { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+}
+
+/* Vue transition used so element is removed from DOM after animation */
+.flash-fade-leave-active { transition: opacity 0s; }
+.flash-fade-leave-to     { opacity: 0; }
 </style>

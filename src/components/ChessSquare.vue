@@ -24,6 +24,7 @@
     <span v-if="isLegal && !piece" class="legal-dot" />
     <span v-if="showCoords && isBottomRank" class="coord file">{{ file }}</span>
     <span v-if="showCoords && isAFile" class="coord rank">{{ rank }}</span>
+    <span v-if="showAllSquareNames && !(showCoords && isBottomRank && isAFile)" class="sq-name-label">{{ square }}</span>
 
     <!-- Promotion selector overlay -->
     <div v-if="showPromotion" class="promotion-overlay">
@@ -52,6 +53,7 @@ const props = defineProps({
   showPromotion: Boolean,
   canDrag: Boolean,
   showCoords: { type: Boolean, default: true },
+  showAllSquareNames: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['click', 'drop', 'promote'])
@@ -161,6 +163,20 @@ function onDrop(e) {
 
 .light .coord { color: #b58863; }
 .dark  .coord { color: #f0d9b5; }
+
+.sq-name-label {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: clamp(7px, 1.1vw, 11px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 0;
+  line-height: 1;
+}
+.light .sq-name-label { color: #b58863; opacity: 0.75; }
+.dark  .sq-name-label { color: #f0d9b5; opacity: 0.75; }
 
 .promotion-overlay {
   position: absolute;
