@@ -4,16 +4,52 @@ import { Chess } from 'chess.js'
 export function useChessGame() {
   const chess = ref(new Chess())
   const fen = ref(chess.value.fen())
+  const fenHistory = ref([chess.value.fen()])  // fenHistory[i] = position after move i (0 = start)
   const moveHistory = ref([])
   const selectedSquare = ref(null)
   const legalMoves = ref([])
-  const status = ref('playing') // 'playing' | 'checkmate' | 'draw' | 'stalemate'
-  const promotionPending = ref(null) // { from, to } when promotion needed
+  const status = ref('playing') // 'playing' | 'checkmate' | 'draw' | 'stalemate' | 'resigned'
+  const promotionPending = ref(null)
+  const resignedColor = ref(null)
 
-  const turn = computed(() => chess.value.turn()) // 'w' | 'b'
+  // null = at current (last) position; number = browsing index into fenHistory
+  const viewIndex = ref(null)
+
+  const turn = computed(() => chess.value.turn())
   const inCheck = computed(() => chess.value.inCheck())
 
+  const viewFen = computed(() =>
+    viewIndex.value === null ? fen.value : fenHistory.value[viewIndex.value]
+  )
+  // True when user is viewing a past position (not the live game state)
+  const isViewingHistory = computed(() =>
+    viewIndex.value !== null && viewIndex.value < fenHistory.value.length - 1
+  )
+  // Current browse position as a move number (0 = before any moves)
+  const viewPos = computed(() =>
+    viewIndex.value === null ? fenHistory.value.length - 1 : viewIndex.value
+  )
+
+  function goFirst() { viewIndex.value = 0 }
+  function goLast()  { viewIndex.value = null }
+  function goPrev()  {
+    const cur = viewPos.value
+    if (cur > 0) viewIndex.value = cur - 1
+  }
+  function goNext()  {
+    const cur = viewPos.value
+    if (cur < fenHistory.value.length - 1) {
+      viewIndex.value = cur + 1 === fenHistory.value.length - 1 ? null : cur + 1
+    }
+  }
+  function goTo(idx) {
+    if (idx < 0 || idx >= fenHistory.value.length) return
+    viewIndex.value = idx === fenHistory.value.length - 1 ? null : idx
+  }
+
   function updateStatus() {
+    // Don't overwrite manually set terminal states (resigned, draw by agreement)
+    if (status.value === 'resigned') return
     if (chess.value.isCheckmate()) {
       status.value = 'checkmate'
     } else if (chess.value.isStalemate()) {
@@ -27,6 +63,7 @@ export function useChessGame() {
 
   function selectSquare(square) {
     if (status.value !== 'playing') return false
+    if (isViewingHistory.value) return false
 
     const piece = chess.value.get(square)
 
@@ -63,6 +100,8 @@ export function useChessGame() {
   }
 
   function attemptMove(from, to, promotion = 'q') {
+    if (status.value !== 'playing') return false  // guard against moves after game over
+    if (isViewingHistory.value) return false       // guard against moves while browsing
     const moves = chess.value.moves({ square: from, verbose: true })
     const target = moves.find((m) => m.to === to)
 
@@ -82,6 +121,7 @@ export function useChessGame() {
     if (!result) return false
 
     fen.value = chess.value.fen()
+    fenHistory.value.push(fen.value)
     moveHistory.value.push(result)
     selectedSquare.value = null
     legalMoves.value = []
@@ -98,28 +138,47 @@ export function useChessGame() {
 
   function undoMove() {
     if (moveHistory.value.length === 0) return
+    viewIndex.value = null  // snap back to current before undoing
     chess.value.undo()
     moveHistory.value.pop()
+    fenHistory.value.pop()
     fen.value = chess.value.fen()
     selectedSquare.value = null
     legalMoves.value = []
     updateStatus()
   }
 
+  function resign(color) {
+    resignedColor.value = color
+    status.value = 'resigned'
+    selectedSquare.value = null
+    legalMoves.value = []
+  }
+
+  function acceptDraw() {
+    status.value = 'draw'
+    selectedSquare.value = null
+    legalMoves.value = []
+  }
+
   function newGame() {
     chess.value = new Chess()
     fen.value = chess.value.fen()
+    fenHistory.value = [chess.value.fen()]
     moveHistory.value = []
     selectedSquare.value = null
     legalMoves.value = []
     status.value = 'playing'
     promotionPending.value = null
+    resignedColor.value = null
+    viewIndex.value = null
   }
 
   function loadFen(newFen) {
     try {
       chess.value.load(newFen)
       fen.value = newFen
+      fenHistory.value = [newFen]
       moveHistory.value = []
       selectedSquare.value = null
       legalMoves.value = []
@@ -130,10 +189,12 @@ export function useChessGame() {
   }
 
   function applyExternalMove(moveObj) {
+    if (status.value !== 'playing') return  // ignore moves after game over
     try {
       const result = chess.value.move(moveObj)
       if (result) {
         fen.value = chess.value.fen()
+        fenHistory.value.push(fen.value)
         moveHistory.value.push(result)
         updateStatus()
       }
@@ -150,7 +211,11 @@ export function useChessGame() {
     selectedSquare,
     legalMoves,
     status,
+    resignedColor,
     promotionPending,
+    viewFen,
+    viewPos,
+    isViewingHistory,
     selectSquare,
     attemptMove,
     confirmPromotion,
@@ -158,5 +223,12 @@ export function useChessGame() {
     newGame,
     loadFen,
     applyExternalMove,
+    resign,
+    acceptDraw,
+    goFirst,
+    goPrev,
+    goNext,
+    goLast,
+    goTo,
   }
 }

@@ -281,6 +281,7 @@ const zoneOptions = [
   { id: 'right', label: 'Right half' },
   { id: 'diag1', label: '↙+↗ 4×4' },
   { id: 'diag2', label: '↖+↘ 4×4' },
+  { id: 'full',  label: 'Full board' },
 ]
 
 // Squares in display order a8→h1
@@ -362,6 +363,8 @@ function computeZone(id, anchor = null) {
     case 'diag2':
       for (let i=0;i<4;i++) for (let r=5;r<=8;r++) f(i,r)
       for (let i=4;i<8;i++) for (let r=1;r<=4;r++) f(i,r); break
+    case 'full':
+      for (let i=0;i<8;i++) for (let r=1;r<=8;r++) f(i,r); break
   }
   return set
 }

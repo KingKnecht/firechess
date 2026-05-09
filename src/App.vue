@@ -9,6 +9,9 @@
     <!-- Visualization trainer -->
     <VisualizationTrainer v-else-if="view === 'visualization'" @back="goHome" />
 
+    <!-- Bot settings screen -->
+    <BotSettings v-else-if="view === 'bot-settings'" @back="goHome" @start="handleBotStart" />
+
     <!-- Game screen -->
     <template v-else>
       <header class="app-header">
@@ -18,17 +21,18 @@
       </header>
 
       <main class="app-main">
-        <EvalBar
-          :score="evalScore"
-          :depth="evalDepth"
-          :source="evalSource"
-          :evaluating="evaluating"
-        />
+        <div class="board-area">
+          <EvalBar
+            :score="evalScore"
+            :depth="evalDepth"
+            :source="evalSource"
+            :evaluating="evaluating"
+          />
 
-        <ChessBoard
-          :fen="fen"
-          :selected-square="selectedSquare"
-          :legal-moves="legalMoves"
+          <ChessBoard
+          :fen="viewFen"
+          :selected-square="isViewingHistory ? null : selectedSquare"
+          :legal-moves="isViewingHistory ? [] : legalMoves"
           :flipped="boardFlipped"
           :active-turn="turn"
           :my-color="mode === 'online' ? onlineMyColor : null"
@@ -37,15 +41,30 @@
           @drop="onDrop"
           @promote="confirmPromotion"
         />
+        </div>
 
         <GameControls
           v-model="mode"
           :turn="turn"
           :status="status"
+          :resigned-color="resignedColor"
           :move-history="moveHistory"
           :my-color="mode === 'online' ? onlineMyColor : null"
+          :player-color="mode === 'stockfish' ? playerColor : null"
+          :bot-thinking="botThinking"
+          :allow-undo="mode === 'stockfish' ? allowUndo : true"
+          :view-pos="viewPos"
+          :is-viewing-history="isViewingHistory"
           @new-game="handleNewGame"
-          @undo="undoMove"
+          @undo="handleUndo"
+          @home="goHome"
+          @resign="handleResign"
+          @offer-draw="handleOfferDraw"
+          @go-first="goFirst"
+          @go-prev="goPrev"
+          @go-next="goNext"
+          @go-last="goLast"
+          @go-to="goTo"
         >
           <template #online>
             <OnlineLobby
@@ -74,6 +93,7 @@ import EvalBar from './components/EvalBar.vue'
 import StartPage from './components/StartPage.vue'
 import BoardEditor from './components/BoardEditor.vue'
 import VisualizationTrainer from './components/VisualizationTrainer.vue'
+import BotSettings from './components/BotSettings.vue'
 import { useChessGame } from './composables/useChessGame.js'
 import { useOnlineGame } from './composables/useOnlineGame.js'
 import { useEvaluation } from './composables/useEvaluation.js'
@@ -86,7 +106,11 @@ const {
   selectedSquare,
   legalMoves,
   status,
+  resignedColor,
   promotionPending,
+  viewFen,
+  viewPos,
+  isViewingHistory,
   selectSquare,
   attemptMove,
   confirmPromotion,
@@ -94,6 +118,13 @@ const {
   newGame,
   loadFen,
   applyExternalMove,
+  resign,
+  acceptDraw,
+  goFirst,
+  goPrev,
+  goNext,
+  goLast,
+  goTo,
 } = useChessGame()
 
 const {
@@ -106,17 +137,21 @@ const {
   joinRoom,
   subscribeToRoom,
   pushMove,
+  pushResign,
+  pushDraw,
   leaveRoom,
 } = useOnlineGame()
 
 const { evalScore, evalDepth, evalSource, evaluating, evaluate, stop } = useEvaluation()
-const { botThinking, requestMove } = useBotGame()
+const { botThinking, requestMove, setSkill } = useBotGame()
 
 const mode = ref('local')
 const view = ref('home')
 
-// Bot plays as Black; player is White
-const BOT_COLOR = 'b'
+// Colors: playerColor = color player chose; BOT_COLOR = opposite
+const playerColor = ref('w')
+const botColor    = computed(() => playerColor.value === 'w' ? 'b' : 'w')
+const allowUndo   = ref(true)
 
 function handleStartSelect({ mode: selectedMode, timeControl, trainingMode }) {
   if (selectedMode === 'training') {
@@ -124,7 +159,8 @@ function handleStartSelect({ mode: selectedMode, timeControl, trainingMode }) {
     if (trainingMode === 'visualization') { view.value = 'visualization'; return }
     mode.value = 'local'
   } else if (selectedMode === 'bot') {
-    mode.value = 'stockfish'
+    view.value = 'bot-settings'
+    return
   } else {
     mode.value = selectedMode
   }
@@ -132,14 +168,45 @@ function handleStartSelect({ mode: selectedMode, timeControl, trainingMode }) {
   view.value = 'game'
 }
 
+function handleBotStart({ playerColor: pColor, skillLevel, fen: startFen, allowUndo: canUndo }) {
+  playerColor.value = pColor
+  allowUndo.value = canUndo
+  mode.value = 'stockfish'
+  setSkill(skillLevel)
+  newGame()
+  if (startFen) loadFen(startFen)
+  view.value = 'game'
+}
+
 function goHome() {
+  if (status.value === 'playing' && moveHistory.value.length > 0) {
+    const inOnline = mode.value === 'online'
+    const msg = inOnline
+      ? 'Leaving will forfeit the game and count as a loss. Are you sure?'
+      : 'Leave the current game? Your progress will be lost.'
+    if (!window.confirm(msg)) return
+  }
   if (mode.value === 'online' && onlineRoomId.value) leaveRoom()
   view.value = 'home'
 }
 
-const boardFlipped = computed(() =>
-  mode.value === 'online' && onlineMyColor.value === 'b'
-)
+function handleResign(color) {
+  resign(color)
+  if (mode.value === 'online' && onlineRoomId.value) {
+    pushResign(onlineRoomId.value, color)
+  }
+}
+
+function handleOfferDraw() {
+  acceptDraw()
+  // Online draw would need two-way signaling; local only for now
+}
+
+const boardFlipped = computed(() => {
+  if (mode.value === 'online') return onlineMyColor.value === 'b'
+  if (mode.value === 'stockfish') return playerColor.value === 'b'
+  return false
+})
 
 // Re-evaluate whenever FEN changes (i.e. after every move)
 watch(fen, (newFen) => {
@@ -154,10 +221,11 @@ watch(fen, (newFen) => {
 watch([fen, mode], async ([newFen, newMode]) => {
   if (newMode !== 'stockfish') return
   if (status.value !== 'playing') return
-  if (turn.value !== BOT_COLOR) return
+  if (turn.value !== botColor.value) return
 
   const uciMove = await requestMove(newFen)
   if (!uciMove) return
+  if (status.value !== 'playing') return  // guard: player may have resigned while bot was thinking
   // UCI format: "e2e4" or "e7e8q" (promotion)
   const from = uciMove.slice(0, 2)
   const to = uciMove.slice(2, 4)
@@ -167,7 +235,7 @@ watch([fen, mode], async ([newFen, newMode]) => {
 
 function onSquareClick(square) {
   if (mode.value === 'online' && turn.value !== onlineMyColor.value) return
-  if (mode.value === 'stockfish' && turn.value === BOT_COLOR) return
+  if (mode.value === 'stockfish' && turn.value !== playerColor.value) return
   const moved = selectSquare(square)
   if (moved && mode.value === 'online') {
     const lastMove = moveHistory.value[moveHistory.value.length - 1]
@@ -177,7 +245,7 @@ function onSquareClick(square) {
 
 function onDrop({ from, to }) {
   if (mode.value === 'online' && turn.value !== onlineMyColor.value) return
-  if (mode.value === 'stockfish' && turn.value === BOT_COLOR) return
+  if (mode.value === 'stockfish' && turn.value !== playerColor.value) return
   const moved = attemptMove(from, to)
   if (moved && mode.value === 'online') {
     const lastMove = moveHistory.value[moveHistory.value.length - 1]
@@ -187,6 +255,16 @@ function onDrop({ from, to }) {
 
 function handleNewGame() {
   newGame()
+}
+
+function handleUndo() {
+  if (mode.value === 'stockfish') {
+    // Undo bot move + player move to return to player's last turn
+    undoMove() // undo bot's last move
+    undoMove() // undo player's last move
+  } else {
+    undoMove()
+  }
 }
 
 async function handleCreateRoom() {
@@ -220,6 +298,13 @@ function startOnlineSync(id) {
       } else {
         loadFen(data.fen)
       }
+    }
+    // Handle resign/draw signals from opponent
+    if (data.status === 'resigned' && data.resignedColor && status.value === 'playing') {
+      resign(data.resignedColor)
+    }
+    if (data.status === 'draw' && status.value === 'playing') {
+      acceptDraw()
     }
   })
 }
@@ -287,6 +372,12 @@ body {
 .back-btn:hover { background: rgba(240,217,181,0.15); }
 
 .header-spacer { width: 90px; }
+
+.board-area {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
 
 .app-main {
   flex: 1;

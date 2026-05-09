@@ -58,7 +58,6 @@ const tooltip = computed(() => {
   align-items: center;
   gap: 6px;
   width: 36px;
-  align-self: stretch;
 }
 
 .eval-bar {

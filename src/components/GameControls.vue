@@ -1,17 +1,11 @@
 <template>
   <div class="controls">
-    <!-- Mode selector -->
-    <div class="mode-bar">
-      <button
-        v-for="m in modes"
-        :key="m.value"
-        :class="['mode-btn', { active: modelValue === m.value, disabled: m.disabled }]"
-        :disabled="m.disabled"
-        :title="m.disabled ? m.tooltip : ''"
-        @click="!m.disabled && $emit('update:modelValue', m.value)"
-      >
-        {{ m.label }}
-      </button>
+    <!-- Mode label -->
+    <div class="mode-label">
+      <span v-if="modelValue === 'stockfish'">🤖 vs Bot</span>
+      <span v-else-if="modelValue === 'online'">🌐 Online</span>
+      <span v-else>🏠 Local</span>
+      <button class="home-link" @click="$emit('home')">← Home</button>
     </div>
 
     <!-- Status banner -->
@@ -20,10 +14,15 @@
     <!-- Turn indicator -->
     <div v-if="status === 'playing'" class="turn-indicator">
       <span class="dot" :class="turn === 'w' ? 'white' : 'black'" />
-      <span v-if="modelValue === 'stockfish' && turn === 'b'" class="bot-thinking">
+      <span v-if="modelValue === 'stockfish' && botThinking" class="bot-thinking">
         🤖 Bot thinking…
       </span>
       <span v-else>{{ turn === 'w' ? 'White' : 'Black' }} to move</span>
+    </div>
+
+    <!-- Player color info for bot game -->
+    <div v-if="modelValue === 'stockfish' && playerColor" class="color-info">
+      You play as <strong>{{ playerColor === 'w' ? '♔ White' : '♚ Black' }}</strong>
     </div>
 
     <!-- Online room info -->
@@ -34,24 +33,78 @@
     <!-- Action buttons -->
     <div class="actions">
       <button class="btn primary" @click="$emit('new-game')">New Game</button>
-      <button class="btn" :disabled="moveHistory.length === 0 || modelValue === 'online'" @click="$emit('undo')">
+      <button class="btn" :disabled="undoDisabled" @click="$emit('undo')">
         ↩ Undo
       </button>
     </div>
 
+    <!-- Resign / Draw buttons -->
+    <div v-if="status === 'playing' && moveHistory.length > 0" class="game-actions">
+      <!-- Resign -->
+      <template v-if="!confirmingResign && !confirmingDraw">
+        <button
+          class="btn-action resign"
+          :disabled="botThinking"
+          @click="confirmingResign = true"
+        >🏳 Resign</button>
+        <button
+          v-if="modelValue === 'local'"
+          class="btn-action draw"
+          @click="confirmingDraw = true"
+        >🤝 Offer Draw</button>
+      </template>
+
+      <!-- Resign confirmation -->
+      <div v-if="confirmingResign" class="confirm-strip">
+        <span>Really resign?</span>
+        <button class="confirm-yes" @click="doResign">Yes</button>
+        <button class="confirm-no" @click="confirmingResign = false">No</button>
+      </div>
+
+      <!-- Draw confirmation -->
+      <div v-if="confirmingDraw" class="confirm-strip">
+        <span>Both agree to a draw?</span>
+        <button class="confirm-yes" @click="doDraw">Accept</button>
+        <button class="confirm-no" @click="confirmingDraw = false">Cancel</button>
+      </div>
+    </div>
+
     <!-- Move history -->
     <div class="history" ref="historyEl">
-      <div class="history-title">Move History</div>
+      <div class="history-header">
+        <span class="history-title">Move History</span>
+        <button v-if="moveHistory.length > 0" class="copy-pgn" @click="copyPgn" :title="copyTooltip">
+          {{ copyTooltip }}
+        </button>
+      </div>
       <div v-if="moveHistory.length === 0" class="no-moves">No moves yet</div>
-      <ol class="move-list">
+      <div class="move-list">
         <template v-for="(pair, i) in movePairs" :key="i">
-          <li>
-            <span class="move-num">{{ i + 1 }}.</span>
-            <span class="move">{{ pair[0] }}</span>
-            <span v-if="pair[1]" class="move">{{ pair[1] }}</span>
-          </li>
+          <span class="move-num" :class="{ 'view-num': isAtPair(i, null) }">{{ i + 1 }}.</span>
+          <span
+            class="move"
+            :class="{ check: isCheck(pair[0]), mate: isMate(pair[0]), 'view-move': isAtPair(i, 0) }"
+            @click="$emit('go-to', i * 2 + 1)"
+          >{{ pair[0] }}</span>
+          <span
+            v-if="pair[1]"
+            class="move"
+            :class="{ check: isCheck(pair[1]), mate: isMate(pair[1]), 'view-move': isAtPair(i, 1) }"
+            @click="$emit('go-to', i * 2 + 2)"
+          >{{ pair[1] }}</span>
         </template>
-      </ol>
+      </div>
+
+      <!-- Nav bar -->
+      <div v-if="moveHistory.length > 0" class="nav-bar">
+        <button class="nav-btn" :disabled="viewPos === 0" @click="$emit('go-first')" title="Start">⏮</button>
+        <button class="nav-btn" :disabled="viewPos === 0" @click="$emit('go-prev')" title="Previous">◀</button>
+        <span class="nav-pos">{{ viewPos === 0 ? 'Start' : `Move ${viewPos} / ${moveHistory.length}` }}</span>
+        <button class="nav-btn" :disabled="!isViewingHistory" @click="$emit('go-next')" title="Next">▶</button>
+        <button class="nav-btn" :disabled="!isViewingHistory" @click="$emit('go-last')" title="Current">⏭</button>
+      </div>
+
+      <div v-if="isViewingHistory" class="browsing-hint">👁 Browsing — go to current to play</div>
     </div>
   </div>
 </template>
@@ -60,22 +113,59 @@
 import { computed, ref, watch, nextTick } from 'vue'
 
 const props = defineProps({
-  modelValue: String,  // current mode
+  modelValue: String,
   turn: String,
   status: String,
+  resignedColor: { type: String, default: null },
   moveHistory: Array,
   myColor: { type: String, default: null },
+  playerColor: { type: String, default: null },
+  botThinking: { type: Boolean, default: false },
+  allowUndo: { type: Boolean, default: true },
+  viewPos: { type: Number, default: 0 },           // which move index we're viewing
+  isViewingHistory: { type: Boolean, default: false },
 })
 
-defineEmits(['update:modelValue', 'new-game', 'undo'])
+const emit = defineEmits([
+  'update:modelValue', 'new-game', 'undo', 'home',
+  'resign', 'offer-draw',
+  'go-first', 'go-prev', 'go-next', 'go-last', 'go-to',
+])
 
 const historyEl = ref(null)
+const confirmingResign = ref(false)
+const confirmingDraw   = ref(false)
 
-const modes = [
-  { value: 'local', label: '🏠 Local' },
-  { value: 'online', label: '🌐 Online' },
-  { value: 'stockfish', label: '🤖 vs Bot' },
-]
+// Reset confirm states when game ends
+watch(() => props.status, () => {
+  confirmingResign.value = false
+  confirmingDraw.value = false
+})
+
+function doResign() {
+  confirmingResign.value = false
+  // In local mode emit current turn; in other modes emit player's color
+  const color = props.modelValue === 'local' ? props.turn : props.playerColor
+  emit('resign', color)
+}
+
+function doDraw() {
+  confirmingDraw.value = false
+  emit('offer-draw')
+}
+
+const undoDisabled = computed(() => {
+  if (props.moveHistory.length === 0) return true
+  if (props.modelValue === 'online') return true
+  if (!props.allowUndo) return true
+  // For bot games: only allow undo on player's turn, and need at least 2 moves
+  if (props.modelValue === 'stockfish') {
+    if (props.turn !== props.playerColor) return true
+    if (props.moveHistory.length < 2) return true
+  }
+  return false
+})
+
 
 const movePairs = computed(() => {
   const pairs = []
@@ -90,13 +180,19 @@ const statusText = computed(() => {
     const winner = props.turn === 'w' ? 'Black' : 'White'
     return `Checkmate! ${winner} wins 🏆`
   }
+  if (props.status === 'resigned') {
+    const winner = props.resignedColor === 'w' ? 'Black' : 'White'
+    const loser  = props.resignedColor === 'w' ? 'White' : 'Black'
+    return `${loser} resigned — ${winner} wins`
+  }
   if (props.status === 'stalemate') return 'Stalemate — Draw'
-  if (props.status === 'draw') return 'Draw'
+  if (props.status === 'draw') return 'Draw 🤝'
   return ''
 })
 
 const statusClass = computed(() => {
-  if (['checkmate', 'stalemate', 'draw'].includes(props.status)) return 'game-over'
+  if (['checkmate', 'resigned'].includes(props.status)) return 'game-over'
+  if (['stalemate', 'draw'].includes(props.status)) return 'game-draw'
   return ''
 })
 
@@ -107,6 +203,30 @@ watch(
     if (historyEl.value) historyEl.value.scrollTop = historyEl.value.scrollHeight
   },
 )
+
+function isCheck(san) { return san && san.endsWith('+') }
+function isMate(san)  { return san && san.endsWith('#') }
+
+// Returns true if this cell in the move list is the currently viewed move
+// pairIdx = row index, side = 0 (white) or 1 (black)
+function isAtPair(pairIdx, side) {
+  const moveNum = pairIdx * 2 + 1 + (side ?? 0)
+  return props.viewPos === moveNum
+}
+
+const copyTooltip = ref('Copy PGN')
+
+function copyPgn() {
+  // Build PGN string: "1. e4 e5 2. Nf3 Nc6 ..."
+  const lines = movePairs.value.map((pair, i) =>
+    pair[1] ? `${i + 1}. ${pair[0]} ${pair[1]}` : `${i + 1}. ${pair[0]}`
+  )
+  const pgn = lines.join(' ')
+  navigator.clipboard.writeText(pgn).then(() => {
+    copyTooltip.value = 'Copied!'
+    setTimeout(() => { copyTooltip.value = 'Copy PGN' }, 1500)
+  })
+}
 </script>
 
 <style scoped>
@@ -118,25 +238,29 @@ watch(
   min-width: 180px;
 }
 
-.mode-bar {
+.mode-label {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #555;
 }
-
-.mode-btn {
-  flex: 1;
-  padding: 6px 8px;
-  border: 2px solid #b58863;
-  border-radius: 6px;
-  background: #fff;
+.home-link {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 0.78rem;
   cursor: pointer;
-  font-size: 0.8rem;
-  transition: all 0.15s;
+  color: #666;
 }
-.mode-btn.active  { background: #b58863; color: #fff; }
-.mode-btn.disabled { opacity: 0.45; cursor: not-allowed; }
-.mode-btn:not(.disabled):not(.active):hover { background: #f0d9b5; }
+.home-link:hover { background: #f5f5f5; }
+
+.color-info {
+  font-size: 0.82rem;
+  color: #666;
+}
 
 .status {
   min-height: 24px;
@@ -145,6 +269,7 @@ watch(
   font-size: 0.95rem;
 }
 .status.game-over { color: #c0392b; }
+.status.game-draw { color: #27ae60; }
 
 .turn-indicator {
   display: flex;
@@ -164,6 +289,53 @@ watch(
 .online-panel { display: flex; flex-direction: column; gap: 8px; }
 
 .actions { display: flex; gap: 8px; }
+
+.game-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.btn-action {
+  flex: 1;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+.btn-action.resign  { background: #f8d7da; color: #721c24; }
+.btn-action.resign:hover:not(:disabled) { background: #f1aeb5; }
+.btn-action.resign:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-action.draw    { background: #d1ecf1; color: #0c5460; }
+.btn-action.draw:hover  { background: #b8daff; }
+
+.confirm-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff8e1;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+.confirm-strip span { flex: 1; font-weight: 600; }
+.confirm-yes, .confirm-no {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.confirm-yes { background: #c0392b; color: #fff; }
+.confirm-yes:hover { background: #a93226; }
+.confirm-no  { background: #ddd; color: #333; }
+.confirm-no:hover  { background: #bbb; }
 
 .btn {
   flex: 1;
@@ -191,17 +363,71 @@ watch(
   background: #fafafa;
 }
 
-.history-title { font-weight: 700; margin-bottom: 6px; font-size: 0.85rem; color: #555; }
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.history-title { font-weight: 700; font-size: 0.85rem; color: #555; }
+.copy-pgn {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  cursor: pointer;
+  color: #666;
+}
+.copy-pgn:hover { background: #e8e8e8; }
+
 .no-moves { color: #aaa; font-size: 0.82rem; }
 
 .move-list {
-  padding-left: 18px;
-  margin: 0;
+  font-family: monospace;
   font-size: 0.85rem;
-  line-height: 1.8;
+  line-height: 1.9;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  align-content: flex-start;
 }
+.move-num { color: #999; }
+.move     { color: #222; cursor: pointer; padding: 0 2px; border-radius: 3px; }
+.move:hover { background: #e8e8e8; }
+.move.check { color: #d97706; font-weight: 700; }
+.move.mate  { color: #c0392b; font-weight: 700; }
+.move.view-move { background: #b58863; color: #fff !important; border-radius: 3px; }
+
+.nav-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #eee;
+}
+.nav-btn {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #555;
+  line-height: 1;
+}
+.nav-btn:hover:not(:disabled) { background: #e8e8e8; }
+.nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.nav-pos { flex: 1; text-align: center; font-size: 0.75rem; color: #666; }
+
+.browsing-hint {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: #b58863;
+  text-align: center;
+}
+
 .bot-thinking { font-style: italic; color: #b58863; animation: pulse 1s infinite; }
 @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
-.move-num     { color: #888; min-width: 22px; }
-.move         { min-width: 46px; font-family: monospace; }
 </style>

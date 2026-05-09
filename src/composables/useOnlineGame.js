@@ -102,6 +102,24 @@ export function useOnlineGame() {
     }
   }
 
+  async function pushResign(id, color) {
+    const roomRef = doc(db, 'games', id)
+    try {
+      await updateDoc(roomRef, { resignedColor: color, status: 'resigned' })
+    } catch (e) {
+      error.value = e.message
+    }
+  }
+
+  async function pushDraw(id) {
+    const roomRef = doc(db, 'games', id)
+    try {
+      await updateDoc(roomRef, { status: 'draw' })
+    } catch (e) {
+      error.value = e.message
+    }
+  }
+
   function leaveRoom() {
     if (unsubscribe) {
       unsubscribe()
@@ -126,6 +144,8 @@ export function useOnlineGame() {
     joinRoom,
     subscribeToRoom,
     pushMove,
+    pushResign,
+    pushDraw,
     leaveRoom,
   }
 }
