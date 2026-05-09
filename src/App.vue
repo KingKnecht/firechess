@@ -55,6 +55,12 @@
           :allow-undo="mode === 'stockfish' ? allowUndo : true"
           :view-pos="viewPos"
           :is-viewing-history="isViewingHistory"
+          :white-time="timeControl ? whiteTime : null"
+          :black-time="timeControl ? blackTime : null"
+          :white-low="whiteLow"
+          :black-low="blackLow"
+          :clock-active="clockActiveSide"
+          :clock-running="clockRunning"
           @new-game="handleNewGame"
           @undo="handleUndo"
           @home="goHome"
@@ -98,6 +104,7 @@ import { useChessGame } from './composables/useChessGame.js'
 import { useOnlineGame } from './composables/useOnlineGame.js'
 import { useEvaluation } from './composables/useEvaluation.js'
 import { useBotGame } from './composables/useBotGame.js'
+import { useChessClock } from './composables/useChessClock.js'
 
 const {
   fen,
@@ -119,6 +126,7 @@ const {
   loadFen,
   applyExternalMove,
   resign,
+  lostOnTime,
   acceptDraw,
   goFirst,
   goPrev,
@@ -144,27 +152,37 @@ const {
 
 const { evalScore, evalDepth, evalSource, evaluating, evaluate, stop } = useEvaluation()
 const { botThinking, requestMove, setSkill } = useBotGame()
+const {
+  whiteTime, blackTime, whiteLow, blackLow, flagged: clockFlagged,
+  activeSide: clockActiveSide, running: clockRunning,
+  init: clockInit, afterMove: clockAfterMove, stop: clockStop,
+} = useChessClock()
 
 const mode = ref('local')
 const view = ref('home')
+const timeControl = ref(null) // { minutes, increment } or null = untimed
 
 // Colors: playerColor = color player chose; BOT_COLOR = opposite
 const playerColor = ref('w')
 const botColor    = computed(() => playerColor.value === 'w' ? 'b' : 'w')
 const allowUndo   = ref(true)
 
-function handleStartSelect({ mode: selectedMode, timeControl, trainingMode }) {
+function handleStartSelect({ mode: selectedMode, timeControl: tc, trainingMode }) {
   if (selectedMode === 'training') {
     if (trainingMode === 'board-editor') { view.value = 'editor'; return }
     if (trainingMode === 'visualization') { view.value = 'visualization'; return }
     mode.value = 'local'
   } else if (selectedMode === 'bot') {
+    timeControl.value = tc ?? null
     view.value = 'bot-settings'
     return
   } else {
     mode.value = selectedMode
   }
+  timeControl.value = tc ?? null
   newGame()
+  if (tc) clockInit(tc.minutes, tc.increment)
+  else    clockStop()
   view.value = 'game'
 }
 
@@ -175,6 +193,9 @@ function handleBotStart({ playerColor: pColor, skillLevel, fen: startFen, allowU
   setSkill(skillLevel)
   newGame()
   if (startFen) loadFen(startFen)
+  const tc = timeControl.value
+  if (tc) clockInit(tc.minutes, tc.increment)
+  else    clockStop()
   view.value = 'game'
 }
 
@@ -208,7 +229,26 @@ const boardFlipped = computed(() => {
   return false
 })
 
-// Re-evaluate whenever FEN changes (i.e. after every move)
+// Clock: start ticking after first move; add increment and switch side after each move
+watch(moveHistory, (hist) => {
+  if (!timeControl.value) return
+  if (hist.length === 0) return
+  const lastMove = hist[hist.length - 1]
+  const side = lastMove.color // 'w' or 'b'
+  clockAfterMove(side)
+}, { deep: true })
+
+// Stop clock when game ends
+watch(status, (s) => {
+  if (s !== 'playing') clockStop()
+})
+
+// Auto-resign on flag (time out)
+watch(clockFlagged, (side) => {
+  if (side && status.value === 'playing') lostOnTime(side)
+})
+
+
 watch(fen, (newFen) => {
   if (status.value === 'playing') {
     evaluate(newFen)

@@ -151,7 +151,8 @@
               v-for="sq in squares"
               :key="sq"
               class="viz-sq"
-              :class="[squareColor(sq), visibleSet.has(sq) ? 'in-zone recall-target' : 'out-zone', dragOver === sq ? 'drag-over' : '']"
+              :class="[squareColor(sq), visibleSet.has(sq) ? 'in-zone recall-target' : 'out-zone', dragOver === sq ? 'drag-over' : '', selectedBoardSq === sq ? 'sq-selected' : '']"
+              @click="onClickSquare(sq)"
               @dragover.prevent="onDragOverSquare(sq)"
               @dragleave="dragOver = null"
               @drop.prevent="onDropSquare(sq, $event)"
@@ -170,9 +171,13 @@
             </div>
           </div>
 
-          <div class="side-panel" @dragover.prevent @drop.prevent="onDropPalette($event)">
+          <div class="side-panel" @dragover.prevent @drop.prevent="onDropPalette($event)" @click="onClickTray">
             <div class="phase-title">Recall!</div>
-            <p class="phase-hint">Drag pieces onto the highlighted zone.<br>Right-click a piece to remove it.<br>Drag here to return a piece.</p>
+            <p class="phase-hint">
+              <strong>Tap</strong> a piece below, then tap a square.<br>
+              Tap a placed piece to move it.<br>
+              Right-click / long-press to remove.
+            </p>
 
             <div class="palette-section">
               <div class="palette-label">White</div>
@@ -181,9 +186,10 @@
                   v-for="p in paletteWhite"
                   :key="p.key"
                   class="palette-piece"
-                  :class="{ exhausted: p.available === 0 }"
+                  :class="{ exhausted: p.available === 0, 'palette-selected': selectedPalettePiece?.color === p.color && selectedPalettePiece?.type === p.type }"
                   :draggable="p.available !== 0"
                   @dragstart="onDragFromPalette(p, $event)"
+                  @click.stop="onClickPalette(p)"
                 >
                   <img class="palette-img" :src="pieceUrl(p.color, p.type)" />
                   <span v-if="piecePool === 'visible'" class="count-badge">{{ p.available }}</span>
@@ -195,9 +201,10 @@
                   v-for="p in paletteBlack"
                   :key="p.key"
                   class="palette-piece"
-                  :class="{ exhausted: p.available === 0 }"
+                  :class="{ exhausted: p.available === 0, 'palette-selected': selectedPalettePiece?.color === p.color && selectedPalettePiece?.type === p.type }"
                   :draggable="p.available !== 0"
                   @dragstart="onDragFromPalette(p, $event)"
+                  @click.stop="onClickPalette(p)"
                 >
                   <img class="palette-img" :src="pieceUrl(p.color, p.type)" />
                   <span v-if="piecePool === 'visible'" class="count-badge">{{ p.available }}</span>
@@ -205,7 +212,7 @@
               </div>
             </div>
 
-            <button class="start-btn" @click="checkResult">✓ Check Answer</button>
+            <button class="start-btn" @click.stop="checkResult">✓ Check Answer</button>
           </div>
         </div>
       </template>
@@ -246,7 +253,7 @@
               <button class="panel-btn" @click="showSolution = !showSolution">
                 {{ showSolution ? 'Show my answer' : 'Show solution' }}
               </button>
-              <button class="panel-btn" @click="startRecall">↺ Try again</button>
+              <button class="panel-btn" @click="startStudy">↺ Try again</button>
               <button class="start-btn" @click="nextPosition">↻ New position</button>
               <button class="panel-btn danger" @click="phase = 'setup'">✕ End training</button>
             </div>
@@ -326,6 +333,8 @@ const targetBoard = ref({})       // {square → {type,color}} — visible zone 
 const userBoard   = reactive({})  // user's placements
 const countdown   = ref(0)
 const dragOver    = ref(null)
+const selectedPalettePiece = ref(null) // { color, type } — for click-to-place
+const selectedBoardSq = ref(null)      // square string — for click-to-move on board
 const showSolution = ref(false)
 let timer = null
 
@@ -483,11 +492,15 @@ async function startOrLoad() {
 function autoSelectPosition() {
   const len = positions.value.length
   const anchors = allAnchors(selectedZone.value)
-  const mid = Math.floor(len / 2)
+  // Start from a random position to avoid always landing on the same spot
+  const start = Math.floor(Math.random() * len)
   for (let offset = 0; offset < len; offset++) {
-    const idx = ((mid + offset) % (len - 1)) + 1
+    const idx = (start + offset) % len
+    if (idx === 0) continue // skip initial position (empty board)
     const b = fenToBoard(positions.value[idx])
-    for (const anchor of anchors) {
+    // Shuffle anchors so we don't always pick the same zone corner
+    const shuffled = [...anchors].sort(() => Math.random() - 0.5)
+    for (const anchor of shuffled) {
       const zs = computeZone(selectedZone.value, anchor)
       let count = 0
       for (const sq of zs) if (b[sq]) count++
@@ -517,11 +530,15 @@ watch([minPieces, maxPieces, selectedZone], () => {
 function findNextMatch() {
   const len = positions.value.length
   const anchors = allAnchors(selectedZone.value)
-  for (let offset = 1; offset < len; offset++) {
-    const idx = (moveIndex.value + offset) % len
+  // Random start offset so "next position" isn't always sequential
+  const start = Math.floor(Math.random() * len)
+  for (let offset = 0; offset < len; offset++) {
+    const idx = (start + offset) % len
     if (idx === 0) continue
+    if (idx === moveIndex.value) continue // don't repeat the same position
     const b = fenToBoard(positions.value[idx])
-    for (const anchor of anchors) {
+    const shuffled = [...anchors].sort(() => Math.random() - 0.5)
+    for (const anchor of shuffled) {
       const zs = computeZone(selectedZone.value, anchor)
       let count = 0
       for (const sq of zs) if (b[sq]) count++
@@ -557,6 +574,8 @@ function startRecall() {
   clearInterval(timer)
   for (const sq of Object.keys(userBoard)) delete userBoard[sq]
   showSolution.value = false
+  selectedPalettePiece.value = null
+  selectedBoardSq.value = null
   phase.value = 'recall'
 }
 
@@ -672,7 +691,54 @@ function onDropPalette(e) {
 
 function removePiece(sq) { delete userBoard[sq] }
 
-onUnmounted(() => clearInterval(timer))
+// ── Click-to-place (mobile / accessibility) ───────────────────────────────────
+
+function onClickPalette(piece) {
+  if (piece.available === 0) return
+  selectedBoardSq.value = null
+  if (selectedPalettePiece.value?.color === piece.color && selectedPalettePiece.value?.type === piece.type) {
+    selectedPalettePiece.value = null // deselect on second click
+  } else {
+    selectedPalettePiece.value = { color: piece.color, type: piece.type }
+  }
+}
+
+function onClickSquare(sq) {
+  if (!visibleSet.value.has(sq)) return
+
+  // A palette piece is selected → place it
+  if (selectedPalettePiece.value) {
+    userBoard[sq] = { ...selectedPalettePiece.value }
+    selectedPalettePiece.value = null
+    return
+  }
+
+  // A board square is selected → move or deselect
+  if (selectedBoardSq.value) {
+    if (selectedBoardSq.value === sq) {
+      selectedBoardSq.value = null // tap same square = deselect
+    } else {
+      userBoard[sq] = userBoard[selectedBoardSq.value]
+      delete userBoard[selectedBoardSq.value]
+      selectedBoardSq.value = null
+    }
+    return
+  }
+
+  // Select piece already on board
+  if (userBoard[sq]) {
+    selectedBoardSq.value = sq
+  }
+}
+
+function onClickTray() {
+  // Tapping the side panel returns a selected board piece to the tray
+  if (selectedBoardSq.value) {
+    delete userBoard[selectedBoardSq.value]
+    selectedBoardSq.value = null
+  }
+  selectedPalettePiece.value = null
+}
 </script>
 
 <style scoped>
@@ -764,8 +830,9 @@ onUnmounted(() => clearInterval(timer))
 .viz-sq.out-zone { filter: brightness(0.55) saturate(0.4); }
 
 /* Recall drop targets */
-.viz-sq.in-zone.recall-target { cursor: default; }
+.viz-sq.in-zone.recall-target { cursor: pointer; }
 .viz-sq.drag-over { background: #f6f669aa !important; filter: none; }
+.viz-sq.sq-selected { background: #f6f669cc !important; }
 
 /* Result colors — override square color */
 .viz-sq.result-correct { background: #27ae60 !important; filter: none; }
@@ -1055,6 +1122,7 @@ onUnmounted(() => clearInterval(timer))
   transition: background 0.1s, border-color 0.1s;
 }
 .palette-piece:hover:not(.exhausted) { background: #f0d9b5; border-color: #b58863; }
+.palette-piece.palette-selected { background: #f6f669; border-color: #cca700; box-shadow: 0 0 0 2px #cca700; }
 .palette-img {
   width: 100%;
   height: 100%;

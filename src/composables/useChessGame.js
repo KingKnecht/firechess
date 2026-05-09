@@ -50,6 +50,7 @@ export function useChessGame() {
   function updateStatus() {
     // Don't overwrite manually set terminal states (resigned, draw by agreement)
     if (status.value === 'resigned') return
+    if (status.value === 'timeout') return
     if (chess.value.isCheckmate()) {
       status.value = 'checkmate'
     } else if (chess.value.isStalemate()) {
@@ -155,6 +156,13 @@ export function useChessGame() {
     legalMoves.value = []
   }
 
+  function lostOnTime(color) {
+    resignedColor.value = color   // reuse same ref — stores whose flag fell
+    status.value = 'timeout'
+    selectedSquare.value = null
+    legalMoves.value = []
+  }
+
   function acceptDraw() {
     status.value = 'draw'
     selectedSquare.value = null
@@ -224,6 +232,7 @@ export function useChessGame() {
     loadFen,
     applyExternalMove,
     resign,
+    lostOnTime,
     acceptDraw,
     goFirst,
     goPrev,

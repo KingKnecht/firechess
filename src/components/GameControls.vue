@@ -8,6 +8,18 @@
       <button class="home-link" @click="$emit('home')">← Home</button>
     </div>
 
+    <!-- Clocks -->
+    <div v-if="whiteTime !== null" class="clocks">
+      <div class="clock" :class="{ active: clockRunning && clockActive === 'b', low: blackLow }">
+        <span class="clock-label">♚ Black</span>
+        <span class="clock-time">{{ blackTime }}</span>
+      </div>
+      <div class="clock" :class="{ active: clockRunning && clockActive === 'w', low: whiteLow }">
+        <span class="clock-label">♔ White</span>
+        <span class="clock-time">{{ whiteTime }}</span>
+      </div>
+    </div>
+
     <!-- Status banner -->
     <div class="status" :class="statusClass">{{ statusText }}</div>
 
@@ -122,8 +134,15 @@ const props = defineProps({
   playerColor: { type: String, default: null },
   botThinking: { type: Boolean, default: false },
   allowUndo: { type: Boolean, default: true },
-  viewPos: { type: Number, default: 0 },           // which move index we're viewing
+  viewPos: { type: Number, default: 0 },
   isViewingHistory: { type: Boolean, default: false },
+  // Clock
+  whiteTime: { type: String, default: null },
+  blackTime: { type: String, default: null },
+  whiteLow:  { type: Boolean, default: false },
+  blackLow:  { type: Boolean, default: false },
+  clockActive: { type: String, default: 'w' },
+  clockRunning: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
@@ -185,13 +204,18 @@ const statusText = computed(() => {
     const loser  = props.resignedColor === 'w' ? 'White' : 'Black'
     return `${loser} resigned — ${winner} wins`
   }
+  if (props.status === 'timeout') {
+    const loser  = props.resignedColor === 'w' ? 'White' : 'Black'
+    const winner = props.resignedColor === 'w' ? 'Black' : 'White'
+    return `${loser} lost on time — ${winner} wins ⏱`
+  }
   if (props.status === 'stalemate') return 'Stalemate — Draw'
   if (props.status === 'draw') return 'Draw 🤝'
   return ''
 })
 
 const statusClass = computed(() => {
-  if (['checkmate', 'resigned'].includes(props.status)) return 'game-over'
+  if (['checkmate', 'resigned', 'timeout'].includes(props.status)) return 'game-over'
   if (['stalemate', 'draw'].includes(props.status)) return 'game-draw'
   return ''
 })
@@ -237,6 +261,29 @@ function copyPgn() {
   width: 220px;
   min-width: 180px;
 }
+
+.clocks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #e8e8e8;
+  border: 2px solid transparent;
+  transition: border-color 0.2s, background 0.2s;
+}
+.clock.active {
+  border-color: #b58863;
+  background: #fff8ef;
+}
+.clock.low .clock-time { color: #c0392b; animation: pulse 0.6s infinite; }
+.clock-label { font-size: 0.78rem; color: #666; }
+.clock-time  { font-family: monospace; font-size: 1.1rem; font-weight: 700; color: #222; }
 
 .mode-label {
   display: flex;
