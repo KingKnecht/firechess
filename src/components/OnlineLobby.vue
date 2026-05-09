@@ -93,6 +93,7 @@ async function copyLink() {
 .divider { text-align: center; color: #aaa; font-size: 0.8rem; }
 
 .join-row { display: flex; gap: 6px; }
+.join-row .btn { width: auto; flex-shrink: 0; padding: 7px 14px; }
 .join-row input {
   flex: 1;
   padding: 7px 8px;
