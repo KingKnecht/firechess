@@ -92,10 +92,12 @@ export function useOnlineGame() {
 
   async function pushMove(id, fen, move) {
     const roomRef = doc(db, 'games', id)
+    // Firestore cannot serialize chess.js class instances — convert to plain object
+    const plainMove = move ? { from: move.from, to: move.to, promotion: move.promotion ?? null } : null
     try {
       await updateDoc(roomRef, {
         fen,
-        lastMove: move,
+        lastMove: plainMove,
       })
     } catch (e) {
       error.value = e.message
