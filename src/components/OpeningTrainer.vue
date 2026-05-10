@@ -57,25 +57,16 @@
     <div v-else-if="subView === 'edit'" class="ot-body editor-body">
       <!-- Board area -->
       <div class="editor-board-wrap">
-        <div class="editor-board">
-          <div
-            v-for="sq in editorSquares"
-            :key="sq"
-            class="editor-sq"
-            :class="editorSqClass(sq)"
-            @click="onEditorSquareClick(sq)"
-          >
-            <span v-if="editorIsBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
-            <span v-if="editorIsAFile(sq)" class="coord rank">{{ sq[1] }}</span>
-            <img
-              v-if="editorBoard[sq]"
-              class="piece"
-              :src="pieceUrl(editorBoard[sq].color, editorBoard[sq].type)"
-              :alt="editorBoard[sq].color + editorBoard[sq].type"
-            />
-            <div v-if="editorLegalDots.includes(sq)" class="legal-dot" />
-          </div>
-        </div>
+        <ChessBoard
+          :fen="editorChess.fen()"
+          :selectedSquare="editorSelected"
+          :legalMoves="editorLegalDots"
+          :flipped="editorFlipped"
+          :activeTurn="editorChess.turn()"
+          :showMoveFlash="false"
+          @square-click="onEditorSquareClick"
+          @drop="onEditorDrop"
+        />
         <div class="board-controls">
           <button class="btn small" @click="editorGoRoot">⏮ Start</button>
           <button class="btn small" @click="editorGoBack" :disabled="!editorPath.length">← Back</button>
@@ -143,25 +134,17 @@
     <div v-else-if="subView === 'train'" class="ot-body trainer-body">
       <!-- Board -->
       <div class="trainer-board-wrap">
-        <div class="trainer-board">
-          <div
-            v-for="sq in trainerSquares"
-            :key="sq"
-            class="trainer-sq"
-            :class="trainerSqClass(sq)"
-            @click="onTrainerSquareClick(sq)"
-          >
-            <span v-if="trainerIsBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
-            <span v-if="trainerIsAFile(sq)" class="coord rank">{{ sq[1] }}</span>
-            <img
-              v-if="trainerBoard[sq]"
-              class="piece"
-              :src="pieceUrl(trainerBoard[sq].color, trainerBoard[sq].type)"
-              :alt="trainerBoard[sq].color + trainerBoard[sq].type"
-            />
-            <div v-if="trainerLegalDots.includes(sq)" class="legal-dot" />
-          </div>
-        </div>
+        <ChessBoard
+          :fen="trainerChess.fen()"
+          :selectedSquare="trainerSelected"
+          :legalMoves="trainerLegalDots"
+          :flipped="trainerFlipped"
+          :activeTurn="trainerChess.turn()"
+          :myColor="currentRep?.color"
+          :showMoveFlash="false"
+          @square-click="onTrainerSquareClick"
+          @drop="onTrainerDrop"
+        />
         <div :class="['train-feedback', trainFeedback]" v-if="trainFeedback">
           {{ trainFeedback === 'correct' ? '✓ Correct!' : trainFeedback === 'wrong' ? '✗ Try again' : '🎉 Line complete!' }}
         </div>
@@ -210,11 +193,12 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, triggerRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Chess } from 'chess.js'
 import { useRepertoire, countNodes, findNode } from '../composables/useRepertoire.js'
 import { parsePgnToTree } from '../utils/pgnVariantParser.js'
 import RepertoireTree from './RepertoireTree.vue'
+import ChessBoard from './ChessBoard.vue'
 
 const emit = defineEmits(['back'])
 
@@ -263,41 +247,10 @@ function openTraining(rep) {
   restartTraining()
 }
 
-// ── Board helpers ─────────────────────────────────────────────────────────────
-const FILES = ['a','b','c','d','e','f','g','h']
-const RANKS = ['1','2','3','4','5','6','7','8']
-
-function allSquares(flipped) {
-  const ranks = flipped ? RANKS : [...RANKS].reverse()
-  const files = flipped ? [...FILES].reverse() : FILES
-  return ranks.flatMap(r => files.map(f => f + r))
-}
-
-function boardFromFen(fen) {
-  const chess = new Chess()
-  chess.load(fen)
-  const board = {}
-  chess.board().forEach(row => row.forEach(sq => {
-    if (sq) board[sq.square] = { type: sq.type, color: sq.color }
-  }))
-  return board
-}
-
-const PIECE_MAP = { k: 'K', q: 'Q', r: 'R', b: 'B', n: 'N', p: 'P' }
-function pieceUrl(color, type) {
-  return `/pieces/cburnett/${color}${PIECE_MAP[type] ?? type.toUpperCase()}.svg`
-}
-
-function isLight(sq) {
-  const fi = FILES.indexOf(sq[0])
-  const ri = RANKS.indexOf(sq[1])
-  return (fi + ri) % 2 !== 0
-}
-
 // ── Editor view ───────────────────────────────────────────────────────────────
 const editorTab = ref('tree')
 const editorFlipped = ref(false)
-const editorChess = ref(new Chess())
+const editorChess = shallowRef(new Chess())
 const editorSelected = ref(null)
 const editorPath = ref([]) // array of node ids visited
 const selectedNodeId = ref(null)
@@ -311,9 +264,6 @@ const annotationDraft = ref('')
 const importPgn = ref('')
 const importMsg = ref('')
 const importMsgType = ref('ok')
-
-const editorSquares = computed(() => allSquares(editorFlipped.value))
-const editorBoard = computed(() => boardFromFen(editorChess.value.fen()))
 
 const editorLegalDots = computed(() => {
   if (!editorSelected.value) return []
@@ -336,23 +286,6 @@ const trainerCurrentAnnotation = computed(() => {
   return trainerCurrentNode.value.annotation
 })
 
-function editorIsBottomRank(sq) {
-  return sq[1] === (editorFlipped.value ? '8' : '1')
-}
-function editorIsAFile(sq) {
-  return sq[0] === (editorFlipped.value ? 'h' : 'a')
-}
-
-function editorSqClass(sq) {
-  const light = isLight(sq)
-  return {
-    light,
-    dark: !light,
-    selected: editorSelected.value === sq,
-    'legal-target': editorLegalDots.value.includes(sq),
-  }
-}
-
 function editorReset() {
   editorChess.value = new Chess()
   editorSelected.value = null
@@ -373,6 +306,7 @@ function editorGoRoot() {
 function editorGoBack() {
   if (!editorPath.value.length) return
   editorChess.value.undo()
+  triggerRef(editorChess)
   editorPath.value.pop()
   const parentId = editorPath.value.length
     ? editorPath.value[editorPath.value.length - 1]
@@ -393,6 +327,7 @@ function onEditorSquareClick(sq) {
     if (target) {
       const move = editorChess.value.move({ from: editorSelected.value, to: sq, promotion: 'q' })
       if (move) {
+        triggerRef(editorChess)
         const parentId = selectedNodeId.value ?? currentRep.value.root.id
         const node = addMove(currentRep.value.id, parentId, {
           san: move.san,
@@ -411,7 +346,7 @@ function onEditorSquareClick(sq) {
       }
     }
     // Deselect / reselect
-    if (editorBoard.value[sq]) {
+    if (editorChess.value.get(sq)) {
       editorSelected.value = sq
     } else {
       editorSelected.value = null
@@ -419,9 +354,14 @@ function onEditorSquareClick(sq) {
     return
   }
 
-  if (editorBoard.value[sq]) {
+  if (editorChess.value.get(sq)) {
     editorSelected.value = sq
   }
+}
+
+function onEditorDrop({ from, to }) {
+  editorSelected.value = from
+  onEditorSquareClick(to)
 }
 
 function onTreeSelect(node) {
@@ -480,31 +420,16 @@ function doImport() {
 
 // ── Training view ─────────────────────────────────────────────────────────────
 const trainerFlipped = computed(() => currentRep.value?.color === 'b')
-const trainerSquares = computed(() => allSquares(trainerFlipped.value))
-const trainerChess = ref(new Chess())
+const trainerChess = shallowRef(new Chess())
 const trainerSelected = ref(null)
 const trainerCurrentNode = ref(null)
 const trainFeedback = ref('')
 const trainStats = ref({ correct: 0, wrong: 0, lines: 0 })
 
-const trainerBoard = computed(() => boardFromFen(trainerChess.value.fen()))
 const trainerLegalDots = computed(() => {
   if (!trainerSelected.value) return []
   return trainerChess.value.moves({ square: trainerSelected.value, verbose: true }).map(m => m.to)
 })
-
-function trainerIsBottomRank(sq) { return sq[1] === (trainerFlipped.value ? '8' : '1') }
-function trainerIsAFile(sq) { return sq[0] === (trainerFlipped.value ? 'h' : 'a') }
-
-function trainerSqClass(sq) {
-  const light = isLight(sq)
-  return {
-    light,
-    dark: !light,
-    selected: trainerSelected.value === sq,
-    'legal-target': trainerLegalDots.value.includes(sq),
-  }
-}
 
 function restartTraining() {
   trainerChess.value = new Chess()
@@ -521,12 +446,17 @@ function opponentMove() {
   const node = trainerCurrentNode.value
   if (!node?.children?.length) return
   const child = node.children[Math.floor(Math.random() * node.children.length)]
-  trainerChess.value.move(child.san)
-  trainerCurrentNode.value = child
+  try {
+    trainerChess.value.move(child.san)
+    triggerRef(trainerChess)
+    trainerCurrentNode.value = child
+  } catch (e) {
+    console.error('opponentMove: invalid SAN', child.san, e)
+  }
 }
 
 function onTrainerSquareClick(sq) {
-  if (!trainerCurrentNode.value) return
+  if (!trainerCurrentNode.value || !currentRep.value) return
 
   // Ignore clicks if it's not user's turn
   const userColor = currentRep.value.color
@@ -536,7 +466,14 @@ function onTrainerSquareClick(sq) {
     const moves = trainerChess.value.moves({ square: trainerSelected.value, verbose: true })
     const target = moves.find(m => m.to === sq)
     if (target) {
-      const san = trainerChess.value.move({ from: trainerSelected.value, to: sq, promotion: 'q' })?.san
+      let san = null
+      try {
+        san = trainerChess.value.move({ from: trainerSelected.value, to: sq, promotion: 'q' })?.san
+        triggerRef(trainerChess)
+      } catch (e) {
+        trainerSelected.value = null
+        return
+      }
       trainerSelected.value = null
       if (!san) return
 
@@ -564,17 +501,25 @@ function onTrainerSquareClick(sq) {
         // Wrong move — revert
         trainStats.value.wrong++
         trainerChess.value.undo()
+        triggerRef(trainerChess)
         showFeedback('wrong')
         setTimeout(() => { trainFeedback.value = '' }, 900)
       }
       return
     }
-    if (trainerBoard.value[sq]) { trainerSelected.value = sq; return }
+    if (trainerChess.value.get(sq)) { trainerSelected.value = sq; return }
     trainerSelected.value = null
     return
   }
 
-  if (trainerBoard.value[sq]) trainerSelected.value = sq
+  if (trainerChess.value.get(sq)) trainerSelected.value = sq
+}
+
+function onTrainerDrop({ from, to }) {
+  if (!trainerCurrentNode.value || !currentRep.value) return
+  if (trainerChess.value.turn() !== currentRep.value.color) return
+  trainerSelected.value = from
+  onTrainerSquareClick(to)
 }
 
 function showFeedback(type) { trainFeedback.value = type }
@@ -794,40 +739,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
 }
 
-/* ── Chess board (editor + trainer) ── */
-.editor-board, .trainer-board {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
+/* ── Board sizing in trainer context ── */
+.editor-board-wrap :deep(.board),
+.trainer-board-wrap :deep(.board) {
   width: min(480px, calc(100vw - 360px));
-  aspect-ratio: 1;
-  border: 2px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.editor-sq, .trainer-sq {
-  position: relative;
-  aspect-ratio: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.editor-sq.light, .trainer-sq.light { background: #f0d9b5; }
-.editor-sq.dark,  .trainer-sq.dark  { background: #b58863; }
-.editor-sq.selected, .trainer-sq.selected { outline: 3px solid #f6f669; outline-offset: -3px; }
-.editor-sq.legal-target, .trainer-sq.legal-target { outline: 3px solid rgba(0,128,0,0.5); outline-offset: -3px; }
-
-.piece { width: 88%; height: 88%; object-fit: contain; pointer-events: none; }
-.coord { position: absolute; font-size: 0.6rem; font-weight: 700; opacity: 0.7; pointer-events: none; }
-.coord.file { bottom: 1px; right: 2px; }
-.coord.rank { top: 1px; left: 2px; }
-.legal-dot {
-  position: absolute;
-  width: 28%;
-  height: 28%;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.18);
-  pointer-events: none;
+  height: min(480px, calc(100vw - 360px));
 }
 
 .board-controls {
@@ -1032,6 +948,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 @media (max-width: 800px) {
   .ot-body { flex-direction: column; align-items: center; }
   .editor-panel, .trainer-panel { width: 100%; max-width: 480px; }
-  .editor-board, .trainer-board { width: min(480px, 90vw); }
+  .editor-board-wrap :deep(.board),
+  .trainer-board-wrap :deep(.board) { width: min(480px, 90vw); height: min(480px, 90vw); }
 }
 </style>
