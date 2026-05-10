@@ -166,8 +166,9 @@ const { evalScore, evalDepth, evalSource, evaluating, evaluate, stop } = useEval
 const { botThinking, requestMove, setSkill } = useBotGame()
 const {
   whiteTime, blackTime, whiteLow, blackLow, flagged: clockFlagged,
-  activeSide: clockActiveSide, running: clockRunning,
+  activeSide: clockActiveSide, running: clockRunning, increment: clockIncrement,
   init: clockInit, afterMove: clockAfterMove, stop: clockStop,
+  syncFromServer: clockSyncFromServer, getAccurateSnapshot: clockGetAccurateSnapshot,
 } = useChessClock()
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -262,8 +263,9 @@ const boardFlipped = computed(() => {
 })
 
 // Clock: start ticking after first move; add increment and switch side after each move
+// In online mode the clock is driven by Firestore snapshots, not this watcher.
 watch(moveHistory, (hist) => {
-  if (!timeControl.value) return
+  if (!timeControl.value || mode.value === 'online') return
   if (hist.length === 0) return
   const lastMove = hist[hist.length - 1]
   const side = lastMove.color // 'w' or 'b'
@@ -311,7 +313,9 @@ function onSquareClick(square) {
   const moved = selectSquare(square)
   if (moved && mode.value === 'online') {
     const lastMove = moveHistory.value[moveHistory.value.length - 1]
-    pushMove(onlineRoomId.value, fen.value, lastMove)
+    const clockData = buildOnlineClockData(lastMove.color)
+    clockAfterMove(lastMove.color)
+    pushMove(onlineRoomId.value, fen.value, lastMove, clockData)
   }
 }
 
@@ -321,7 +325,21 @@ function onDrop({ from, to }) {
   const moved = attemptMove(from, to)
   if (moved && mode.value === 'online') {
     const lastMove = moveHistory.value[moveHistory.value.length - 1]
-    pushMove(onlineRoomId.value, fen.value, lastMove)
+    const clockData = buildOnlineClockData(lastMove.color)
+    clockAfterMove(lastMove.color)
+    pushMove(onlineRoomId.value, fen.value, lastMove, clockData)
+  }
+}
+
+function buildOnlineClockData(movingColor) {
+  if (!timeControl.value) return null
+  const snap = clockGetAccurateSnapshot()
+  const inc = clockIncrement.value
+  const nextSide = movingColor === 'w' ? 'b' : 'w'
+  return {
+    whiteMs: movingColor === 'w' ? snap.whiteMs + inc : snap.whiteMs,
+    blackMs: movingColor === 'b' ? snap.blackMs + inc : snap.blackMs,
+    activeSide: nextSide,
   }
 }
 
@@ -341,7 +359,7 @@ function handleUndo() {
 
 async function handleCreateRoom() {
   newGame()
-  const id = await createRoom()
+  const id = await createRoom(timeControl.value)
   if (id) startOnlineSync(id)
 }
 
@@ -366,6 +384,12 @@ let lastSyncedFen = null
 function startOnlineSync(id) {
   lastSyncedFen = fen.value
   subscribeToRoom(id, (data) => {
+    // Sync time control from creator (authoritative)
+    if (data.timeControl && !timeControl.value) {
+      timeControl.value = data.timeControl
+      clockInit(data.timeControl.minutes, data.timeControl.increment)
+    }
+
     if (data.fen && data.fen !== lastSyncedFen) {
       lastSyncedFen = data.fen
       if (data.lastMove) {
@@ -374,6 +398,18 @@ function startOnlineSync(id) {
         loadFen(data.fen)
       }
     }
+
+    // Sync clock from server: re-anchor using serverTimestamp so tab-switching can't freeze the clock
+    if (data.clockLastMoveAt && data.clockActiveSide) {
+      const serverMoveMs = data.clockLastMoveAt.toMillis()
+      const elapsedSinceMove = Math.max(0, Date.now() - serverMoveMs)
+      let wMs = data.clockWhiteMs ?? 0
+      let bMs = data.clockBlackMs ?? 0
+      if (data.clockActiveSide === 'w') wMs = Math.max(0, wMs - elapsedSinceMove)
+      else bMs = Math.max(0, bMs - elapsedSinceMove)
+      clockSyncFromServer(wMs, bMs, data.clockActiveSide)
+    }
+
     // Handle resign/draw signals from opponent
     if (data.status === 'resigned' && data.resignedColor && status.value === 'playing') {
       resign(data.resignedColor)

@@ -22,13 +22,14 @@ export function useOnlineGame() {
 
   let unsubscribe = null
 
-  async function createRoom() {
+  async function createRoom(timeControl = null) {
     loading.value = true
     error.value = null
     const id = generateRoomId()
     const roomRef = doc(db, 'games', id)
     console.log('[createRoom] attempting to create room', id, 'projectId:', db.app.options.projectId)
 
+    const initMs = timeControl ? timeControl.minutes * 60 * 1000 : null
     try {
       const timeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Connection timed out. Firestore may be blocked by your browser or ad blocker.')), 8000)
@@ -41,6 +42,11 @@ export function useOnlineGame() {
           black: false,
           createdAt: serverTimestamp(),
           lastMove: null,
+          timeControl: timeControl ? { minutes: timeControl.minutes, increment: timeControl.increment ?? 0 } : null,
+          clockWhiteMs: initMs,
+          clockBlackMs: initMs,
+          clockActiveSide: 'w',
+          clockLastMoveAt: null,
         }),
         timeout,
       ])
@@ -100,15 +106,19 @@ export function useOnlineGame() {
     })
   }
 
-  async function pushMove(id, fen, move) {
+  async function pushMove(id, fen, move, clockData = null) {
     const roomRef = doc(db, 'games', id)
     // Firestore cannot serialize chess.js class instances — convert to plain object
     const plainMove = move ? { from: move.from, to: move.to, promotion: move.promotion ?? null } : null
+    const update = { fen, lastMove: plainMove }
+    if (clockData) {
+      update.clockWhiteMs = clockData.whiteMs
+      update.clockBlackMs = clockData.blackMs
+      update.clockActiveSide = clockData.activeSide
+      update.clockLastMoveAt = serverTimestamp()
+    }
     try {
-      await updateDoc(roomRef, {
-        fen,
-        lastMove: plainMove,
-      })
+      await updateDoc(roomRef, update)
     } catch (e) {
       error.value = e.message
     }

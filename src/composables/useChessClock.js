@@ -7,14 +7,18 @@ export function useChessClock() {
   const running  = ref(false)
   const activeSide = ref('w') // whose clock is ticking
   let   _interval = null
+  let   _lastTick = null // wall-clock timestamp of the previous tick
 
   function _tick() {
     if (!running.value) return
+    const now = Date.now()
+    const elapsed = _lastTick !== null ? now - _lastTick : 100
+    _lastTick = now
     if (activeSide.value === 'w') {
-      whiteMs.value = Math.max(0, whiteMs.value - 100)
+      whiteMs.value = Math.max(0, whiteMs.value - elapsed)
       if (whiteMs.value === 0) { running.value = false; clearInterval(_interval) }
     } else {
-      blackMs.value = Math.max(0, blackMs.value - 100)
+      blackMs.value = Math.max(0, blackMs.value - elapsed)
       if (blackMs.value === 0) { running.value = false; clearInterval(_interval) }
     }
   }
@@ -33,6 +37,7 @@ export function useChessClock() {
     activeSide.value = side
     if (!running.value) {
       running.value = true
+      _lastTick = Date.now()
       _interval = setInterval(_tick, 100)
     }
   }
@@ -46,6 +51,7 @@ export function useChessClock() {
     activeSide.value = next
     if (!running.value) {
       running.value = true
+      _lastTick = Date.now()
       _interval = setInterval(_tick, 100)
     }
   }
@@ -54,6 +60,7 @@ export function useChessClock() {
     running.value = false
     clearInterval(_interval)
     _interval = null
+    _lastTick = null
   }
 
   function formatMs(ms) {
@@ -75,5 +82,31 @@ export function useChessClock() {
     return null
   })
 
-  return { whiteTime, blackTime, whiteLow, blackLow, flagged, activeSide, running, init, start, afterMove, stop }
+  // Re-anchor the clock from authoritative server values (online mode)
+  function syncFromServer(wMs, bMs, side) {
+    if (_interval) clearInterval(_interval)
+    _interval = null
+    whiteMs.value = wMs
+    blackMs.value = bMs
+    activeSide.value = side
+    if (wMs > 0 && bMs > 0) {
+      running.value = true
+      _lastTick = Date.now()
+      _interval = setInterval(_tick, 100)
+    } else {
+      running.value = false
+      _lastTick = null
+    }
+  }
+
+  // Returns current remaining times accounting for un-ticked elapsed time
+  function getAccurateSnapshot() {
+    const now = Date.now()
+    const extra = running.value && _lastTick !== null ? now - _lastTick : 0
+    const wMs = activeSide.value === 'w' ? Math.max(0, whiteMs.value - extra) : whiteMs.value
+    const bMs = activeSide.value === 'b' ? Math.max(0, blackMs.value - extra) : blackMs.value
+    return { whiteMs: wMs, blackMs: bMs, activeSide: activeSide.value }
+  }
+
+  return { whiteTime, blackTime, whiteLow, blackLow, flagged, activeSide, running, increment, init, start, afterMove, stop, syncFromServer, getAccurateSnapshot }
 }
