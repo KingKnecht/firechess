@@ -27,24 +27,34 @@ export function useOnlineGame() {
     error.value = null
     const id = generateRoomId()
     const roomRef = doc(db, 'games', id)
+    console.log('[createRoom] attempting to create room', id, 'projectId:', db.app.options.projectId)
 
     try {
-      await setDoc(roomRef, {
-        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-        moves: [],
-        white: true,
-        black: false,
-        createdAt: serverTimestamp(),
-        lastMove: null,
-      })
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Connection timed out. Firestore may be blocked by your browser or ad blocker.')), 8000)
+      )
+      await Promise.race([
+        setDoc(roomRef, {
+          fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          moves: [],
+          white: true,
+          black: false,
+          createdAt: serverTimestamp(),
+          lastMove: null,
+        }),
+        timeout,
+      ])
+      console.log('[createRoom] success, roomId:', id)
       roomId.value = id
       myColor.value = 'w'
     } catch (e) {
+      console.error('[createRoom] error:', e)
       error.value = e.message
-    } finally {
       loading.value = false
+      return null
     }
 
+    loading.value = false
     return id
   }
 
