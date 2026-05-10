@@ -142,8 +142,8 @@ const timeGroups = [
 const trainingOptions = [
   { value: 'board-editor',   label: 'Board Editor',   icon: '📋', comingSoon: false },
   { value: 'visualization',  label: 'Visualization',  icon: '🧠', comingSoon: false },
+  { value: 'openings',       label: 'Openings',        icon: '📖', comingSoon: false },
   { value: 'puzzles',        label: 'Puzzles',         icon: '🧩', comingSoon: true },
-  { value: 'openings',       label: 'Openings',        icon: '📖', comingSoon: true },
   { value: 'analysis',       label: 'Analysis',        icon: '📊', comingSoon: true },
 ]
 </script>

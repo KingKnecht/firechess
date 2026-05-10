@@ -12,6 +12,9 @@
     <!-- Visualization trainer -->
     <VisualizationTrainer v-else-if="view === 'visualization'" @back="goHome" />
 
+    <!-- Opening trainer -->
+    <OpeningTrainer v-else-if="view === 'openings'" @back="goHome" />
+
     <!-- Bot settings screen -->
     <BotSettings v-else-if="view === 'bot-settings'" @back="goHome" @start="handleBotStart" />
 
@@ -105,6 +108,7 @@ import EvalBar from './components/EvalBar.vue'
 import StartPage from './components/StartPage.vue'
 import BoardEditor from './components/BoardEditor.vue'
 import VisualizationTrainer from './components/VisualizationTrainer.vue'
+import OpeningTrainer from './components/OpeningTrainer.vue'
 import BotSettings from './components/BotSettings.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import { useChessGame } from './composables/useChessGame.js'
@@ -195,6 +199,7 @@ function handleStartSelect({ mode: selectedMode, timeControl: tc, trainingMode }
   if (selectedMode === 'training') {
     if (trainingMode === 'board-editor') { view.value = 'editor'; return }
     if (trainingMode === 'visualization') { view.value = 'visualization'; return }
+    if (trainingMode === 'openings') { view.value = 'openings'; return }
     mode.value = 'local'
   } else if (selectedMode === 'bot') {
     timeControl.value = tc ?? null
