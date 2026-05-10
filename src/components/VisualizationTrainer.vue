@@ -24,6 +24,7 @@
                 <!-- pieces hidden before training starts -->
                 <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
                 <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
               </div>
             </div>
 
@@ -84,26 +85,8 @@
               </div>
             </div>
 
-            <div class="panel-section">
-              <div class="section-title">PGN <span class="optional-label">(optional — random game used if empty)</span></div>
-              <textarea
-                v-model="pgnText"
-                class="pgn-input"
-                placeholder="Paste PGN here, or leave empty to use a random master game…"
-                rows="4"
-                spellcheck="false"
-              />
-              <div class="pgn-actions">
-                <button class="panel-btn" :disabled="!pgnText.trim()" @click="loadPgn">Load PGN</button>
-                <button class="panel-btn" @click="loadRandomGame">↺ Random game</button>
-                <span v-if="pgnError" class="badge error">{{ pgnError }}</span>
-                <span v-else-if="positions.length" class="badge ok">{{ currentGameLabel }} · {{ positions.length - 1 }} moves</span>
-              </div>
-            </div>
-
             <button
               class="start-btn"
-              :disabled="piecesInZoneCount === 0 || noMatchFound"
               @click="startOrLoad"
             >▶ Start Training</button>
           </div>
@@ -123,6 +106,7 @@
               <img v-if="targetBoard[sq] && visibleSet.has(sq)" class="piece" :src="pieceUrl(targetBoard[sq].color, targetBoard[sq].type)" />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
 
@@ -177,6 +161,7 @@
               />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
 
@@ -252,6 +237,7 @@
               <span v-else-if="sq === guidedCurrentSq" class="guided-qmark">?</span>
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
 
@@ -311,6 +297,7 @@
               <span v-else-if="isNextNeighbor(sq)" class="incr-neighbor-hint" />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
           <div class="side-panel">
@@ -357,6 +344,7 @@
                 @dragend="dragOver = null" />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
           <div class="side-panel" @dragover.prevent @drop.prevent="onDropPalette($event)" @click="onClickTray">
@@ -407,6 +395,7 @@
                 :src="pieceUrl(incrFullBoard[sq].color, incrFullBoard[sq].type)" />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
           <div class="side-panel">
@@ -449,6 +438,7 @@
                 :src="pieceUrl(incrFullBoard[sq].color, incrFullBoard[sq].type)" />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
           <div class="side-panel">
@@ -480,6 +470,7 @@
               />
               <span v-if="isBottomRank(sq)" class="coord file">{{ sq[0] }}</span>
               <span v-if="isAFile(sq)" class="coord rank">{{ sq[1] }}</span>
+                <span v-if="showAllSquareNames && !(isBottomRank(sq) && isAFile(sq))" class="sq-name-label">{{ sq }}</span>
             </div>
           </div>
 
@@ -510,12 +501,23 @@
       </template>
 
     </div>
+
+    <div v-if="currentGameMeta" class="game-meta">
+      <span class="game-meta-players">{{ currentGameMeta.white }} <span class="game-meta-vs">vs</span> {{ currentGameMeta.black }}</span>
+      <span v-if="currentGameMeta.event || currentGameMeta.site" class="game-meta-event">{{ [currentGameMeta.event, currentGameMeta.site].filter(Boolean).join(' · ') }}</span>
+      <span class="game-meta-details">
+        <span v-if="currentGameMeta.date">{{ currentGameMeta.date }}</span>
+        <span v-if="currentGameMeta.result" class="game-meta-result">{{ currentGameMeta.result }}</span>
+        <span v-if="currentGameMeta.eco" class="game-meta-eco">{{ currentGameMeta.eco }}</span>
+      </span>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Chess } from 'chess.js'
+import { showAllSquareNames } from '../composables/useSettings.js'
 
 const emit = defineEmits(['back'])
 
@@ -558,20 +560,20 @@ const maxPieces    = ref(8)
 
 // ── PGN state ─────────────────────────────────────────────────────────────────
 
-const pgnText      = ref('')
-const pgnError     = ref('')
 const noMatchFound = ref(false)
 const positions    = ref([])
 const moveLabels   = ref([])
 const moveIndex    = ref(0)
 const currentGameLabel = ref('')
+const currentGameMeta  = ref(null) // { white, black, event, site, date, result, eco }
 const availableGames   = ref([])
+const parsedGames      = ref([]) // all games parsed from a PGN file
 
 onMounted(async () => {
   try {
     const res = await fetch('/pgn/index.json')
     availableGames.value = await res.json()
-  } catch { /* no index, manual PGN only */ }
+  } catch { /* no index */ }
 })
 
 // ── Training state ────────────────────────────────────────────────────────────
@@ -702,51 +704,59 @@ const piecesInZoneCount = computed(() => {
 
 // ── PGN loading ───────────────────────────────────────────────────────────────
 
-function parsePgn(text, label = '') {
-  pgnError.value = ''
-  positions.value = []
-  moveLabels.value = []
-  moveIndex.value = 0
-  try {
-    const chess = new Chess()
-    chess.loadPgn(text)
-    const history = chess.history({ verbose: true })
-    const temp = new Chess()
-    const fens = [temp.fen()]
-    const labels = ['Start']
-    for (let i = 0; i < history.length; i++) {
-      const move = temp.move(history[i])
-      fens.push(temp.fen())
-      labels.push(i % 2 === 0 ? `${Math.floor(i/2)+1}. ${move.san}` : `${Math.floor(i/2)+1}… ${move.san}`)
-    }
-    positions.value = fens
-    moveLabels.value = labels
-    currentGameLabel.value = label
-    autoSelectPosition()
-  } catch {
-    pgnError.value = 'Invalid PGN'
+function splitPgnGames(text) {
+  return text.split(/\n\n+(?=\[)/).map(s => s.trim()).filter(s => s.length > 0)
+}
+
+function parsePgnMulti(text, fileLabel = '') {
+  parsedGames.value = []
+  for (const gameText of splitPgnGames(text)) {
+    try {
+      const chess = new Chess()
+      chess.loadPgn(gameText)
+      const history = chess.history({ verbose: true })
+      const temp = new Chess()
+      const fens = [temp.fen()]
+      const labels = ['Start']
+      for (let i = 0; i < history.length; i++) {
+        const move = temp.move(history[i])
+        fens.push(temp.fen())
+        labels.push(i % 2 === 0 ? `${Math.floor(i/2)+1}. ${move.san}` : `${Math.floor(i/2)+1}… ${move.san}`)
+      }
+      const tag = (name) => gameText.match(new RegExp(`\\[${name} "([^"]+)"\\]`))?.[1] || ''
+      const white  = tag('White')
+      const black  = tag('Black')
+      const event  = tag('Event')
+      const site   = tag('Site')
+      const date   = tag('Date').replace(/\.\?\?|\.\?/g, '').replace(/\?/g, '')
+      const result = tag('Result')
+      const eco    = tag('ECO')
+      const label  = white && black ? `${white} vs ${black}` : fileLabel
+      parsedGames.value.push({ fens, labels, label, white, black, event, site, date, result, eco })
+    } catch { /* skip invalid game */ }
   }
 }
 
-function loadPgn() {
-  parsePgn(pgnText.value, 'custom')
-}
-
 async function loadRandomGame() {
-  if (!availableGames.value.length) { pgnError.value = 'No games in /pgn/'; return }
+  if (!availableGames.value.length) return
   const file = availableGames.value[Math.floor(Math.random() * availableGames.value.length)]
   try {
     const res = await fetch(`/pgn/${file}`)
     const text = await res.text()
-    pgnText.value = ''
-    parsePgn(text, file.replace('.pgn', ''))
-  } catch {
-    pgnError.value = 'Failed to load game'
-  }
+    parsePgnMulti(text, file.replace('.pgn', ''))
+    if (!parsedGames.value.length) return
+    const game = parsedGames.value[Math.floor(Math.random() * parsedGames.value.length)]
+    positions.value = game.fens
+    moveLabels.value = game.labels
+    currentGameLabel.value = game.label
+    currentGameMeta.value  = { white: game.white, black: game.black, event: game.event, site: game.site, date: game.date, result: game.result, eco: game.eco }
+    moveIndex.value = 0
+    autoSelectPosition()
+  } catch { /* silently ignore */ }
 }
 
 async function startOrLoad() {
-  if (!positions.value.length) await loadRandomGame()
+  await loadRandomGame()
   if (positions.value.length) startStudy()
 }
 
@@ -1082,14 +1092,8 @@ function handleBack() {
 }
 
 async function nextPosition() {
-  if (!positions.value.length || availableGames.value.length > 0) {
-    // pick a fresh random game each time
-    await loadRandomGame()
-    if (positions.value.length) startStudy()
-  } else {
-    findNextMatch()
-    startStudy()
-  }
+  await loadRandomGame()
+  if (positions.value.length) startStudy()
 }
 
 // ── Score & result ────────────────────────────────────────────────────────────
@@ -1398,6 +1402,21 @@ function onClickTray() {
 .dark  .coord { color: #f0d9b5; }
 .out-zone .coord { opacity: 0; }
 
+.sq-name-label {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: clamp(7px, 1vw, 10px);
+  font-weight: 700;
+  pointer-events: none;
+  z-index: 0;
+  line-height: 1;
+  opacity: 0.7;
+}
+.light .sq-name-label { color: #b58863; }
+.dark  .sq-name-label { color: #f0d9b5; }
+.out-zone .sq-name-label { opacity: 0; }
+
 /* ── Navigator ── */
 .preview-area {
   display: flex;
@@ -1429,6 +1448,44 @@ function onClickTray() {
   font-family: monospace;
   color: #90caf9;
   font-weight: 600;
+}
+.game-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 8px 16px;
+  font-size: 0.78rem;
+  color: #aaa;
+  line-height: 1.4;
+  border-top: 1px solid #333;
+  text-align: center;
+  align-items: center;
+}
+.game-meta-players {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+.game-meta-vs {
+  font-weight: 400;
+  color: #888;
+  margin: 0 4px;
+}
+.game-meta-event {
+  color: #bbb;
+}
+.game-meta-details {
+  display: flex;
+  gap: 10px;
+  color: #999;
+}
+.game-meta-result {
+  font-weight: 600;
+  color: #90caf9;
+}
+.game-meta-eco {
+  font-family: monospace;
 }
 .move-label {
   font-size: 0.82rem;
@@ -1535,17 +1592,6 @@ function onClickTray() {
   cursor: pointer;
 }
 .scan-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.pgn-input {
-  width: 100%;
-  font-size: 0.78rem;
-  font-family: monospace;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  resize: vertical;
-}
-.pgn-actions { display: flex; align-items: center; gap: 10px; }
 
 .panel-btn.danger {
   background: #7b2020;
