@@ -171,8 +171,17 @@
 
         <!-- PGN import tab -->
         <div v-if="editorTab === 'import'" class="import-tab">
-          <p class="import-hint">Paste a PGN (with variants and comments). Moves will be merged into the current repertoire.</p>
-          <textarea v-model="importPgn" class="pgn-input" placeholder="[Event &quot;…&quot;]\n1. e4 e5 (1... c5 2. Nf3) 2. Nf3 *" rows="8" />
+          <p class="import-hint">Paste a PGN or drop a <code>.pgn</code> file below. Moves will be merged into the current repertoire.</p>
+          <div
+            class="pgn-drop-zone"
+            :class="{ 'drop-active': pgndragOver }"
+            @dragover.prevent="pgndragOver = true"
+            @dragleave="pgndragOver = false"
+            @drop.prevent="onPgnFileDrop"
+          >
+            <textarea v-model="importPgn" class="pgn-input" placeholder="[Event &quot;…&quot;]\n1. e4 e5 (1... c5 2. Nf3) 2. Nf3 *" rows="8" />
+            <div class="drop-overlay" v-if="pgndragOver">📂 Drop .pgn file here</div>
+          </div>
           <button class="btn primary" :disabled="!importPgn.trim()" @click="doImport">Import</button>
           <div v-if="importMsg" :class="['import-msg', importMsgType]">{{ importMsg }}</div>
         </div>
@@ -351,6 +360,22 @@ const annotationDraft = ref('')
 const importPgn = ref('')
 const importMsg = ref('')
 const importMsgType = ref('ok')
+const pgndragOver = ref(false)
+
+function onPgnFileDrop(event) {
+  pgndragOver.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (!file) return
+  if (!file.name.endsWith('.pgn') && file.type !== 'application/x-chess-pgn') {
+    importMsg.value = '✗ Only .pgn files are supported.'
+    importMsgType.value = 'err'
+    setTimeout(() => { importMsg.value = '' }, 3000)
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = e => { importPgn.value = e.target.result }
+  reader.readAsText(file)
+}
 
 const editorLegalDots = computed(() => {
   if (!editorSelected.value) return []
@@ -1223,6 +1248,35 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.pgn-drop-zone {
+  position: relative;
+  border-radius: 6px;
+  border: 2px dashed var(--border, #3a3a4a);
+  transition: border-color 0.15s, background 0.15s;
+}
+.pgn-drop-zone.drop-active {
+  border-color: var(--primary, #6366f1);
+  background: rgba(99, 102, 241, 0.08);
+}
+.pgn-drop-zone .pgn-input {
+  border: none;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+}
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--primary, #6366f1);
+  background: rgba(99, 102, 241, 0.12);
+  border-radius: 4px;
+  pointer-events: none;
 }
 .import-hint { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; margin: 0; }
 .pgn-input {
