@@ -230,7 +230,10 @@ function goHome() {
       : 'Leave the current game? Your progress will be lost.'
     if (!window.confirm(msg)) return
   }
-  if (mode.value === 'online' && onlineRoomId.value) leaveRoom()
+  if (mode.value === 'online' && onlineRoomId.value) {
+    if (status.value === 'playing') pushResign(onlineRoomId.value, onlineMyColor.value)
+    leaveRoom()
+  }
   view.value = 'home'
 }
 
@@ -345,6 +348,9 @@ async function handleJoinRoom(id) {
 }
 
 function handleLeaveRoom() {
+  if (status.value === 'playing' && onlineRoomId.value && onlineMyColor.value) {
+    pushResign(onlineRoomId.value, onlineMyColor.value)
+  }
   leaveRoom()
   newGame()
 }
