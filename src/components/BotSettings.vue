@@ -130,13 +130,13 @@ function startGame() {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #2c2c2c;
-  color: #f0d9b5;
+  background: var(--bg-page-alt);
+  color: var(--text-primary);
 }
 
 .settings-header {
-  background: #1a1a1a;
-  color: #f0d9b5;
+  background: var(--bg-header);
+  color: var(--text-on-dark);
   padding: 12px 24px;
   display: flex;
   align-items: center;
@@ -154,7 +154,7 @@ function startGame() {
   font-size: 0.85rem;
   cursor: pointer;
 }
-.back-btn:hover { background: rgba(240,217,181,0.15); }
+.back-btn:hover { background: var(--btn-hover); }
 
 .settings-body {
   flex: 1;
@@ -165,7 +165,7 @@ function startGame() {
 }
 
 .settings-card {
-  background: #1e1e1e;
+  background: var(--bg-panel);
   border-radius: 14px;
   padding: 32px;
   width: min(460px, 100%);
@@ -196,17 +196,17 @@ function startGame() {
   align-items: center;
   gap: 6px;
   padding: 12px 8px;
-  border: 2px solid #444;
+  border: 2px solid var(--border-mid);
   border-radius: 10px;
-  background: #2a2a2a;
-  color: #f0d9b5;
+  background: var(--bg-surface);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 0.85rem;
   transition: all 0.15s;
 }
 .color-icon { font-size: 1.6rem; }
-.color-btn.active { border-color: #b58863; background: #3a2e20; }
-.color-btn:not(.active):hover { border-color: #666; }
+.color-btn.active { border-color: #b58863; background: var(--bg-active); }
+.color-btn:not(.active):hover { border-color: #888; }
 
 /* Difficulty */
 .diff-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -214,25 +214,25 @@ function startGame() {
   flex: 1;
   min-width: 70px;
   padding: 8px 4px;
-  border: 2px solid #444;
+  border: 2px solid var(--border-mid);
   border-radius: 8px;
-  background: #2a2a2a;
-  color: #f0d9b5;
+  background: var(--bg-surface);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 0.8rem;
   transition: all 0.15s;
 }
-.diff-btn.active { border-color: #b58863; background: #3a2e20; }
-.diff-btn:not(.active):hover { border-color: #666; }
+.diff-btn.active { border-color: #b58863; background: var(--bg-active); }
+.diff-btn:not(.active):hover { border-color: #888; }
 
 /* FEN */
 .fen-input {
   width: 100%;
   padding: 10px 12px;
   border-radius: 7px;
-  border: 1px solid #444;
-  background: #111;
-  color: #f0d9b5;
+  border: 1px solid var(--border-mid);
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-family: monospace;
   font-size: 0.85rem;
 }
@@ -251,7 +251,7 @@ function startGame() {
 .toggle-input { display: none; }
 .toggle-track {
   width: 44px; height: 24px;
-  background: #444;
+  background: var(--border-mid);
   border-radius: 12px;
   cursor: pointer;
   position: relative;

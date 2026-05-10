@@ -56,14 +56,14 @@ defineEmits(['back'])
 <style scoped>
 .settings-page {
   min-height: 100vh;
-  background: #1a1a1a;
-  color: #f0d9b5;
+  background: var(--bg-page);
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
 }
 
 .settings-header {
-  background: #111;
+  background: var(--bg-header);
   padding: 12px 24px;
   display: flex;
   align-items: center;
@@ -88,7 +88,7 @@ defineEmits(['back'])
   cursor: pointer;
   transition: background 0.15s;
 }
-.back-btn:hover { background: rgba(240,217,181,0.12); }
+.back-btn:hover { background: var(--btn-hover); }
 
 .settings-main {
   max-width: 600px;
@@ -121,7 +121,7 @@ defineEmits(['back'])
   justify-content: space-between;
   gap: 20px;
   padding: 16px 0;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
 }
 .settings-row:last-child { border-bottom: none; }
@@ -138,7 +138,7 @@ defineEmits(['back'])
 }
 .row-desc {
   font-size: 0.78rem;
-  color: #888;
+  color: var(--text-muted);
   line-height: 1.4;
 }
 
@@ -147,7 +147,7 @@ defineEmits(['back'])
   width: 44px;
   height: 24px;
   border-radius: 12px;
-  background: #444;
+  background: var(--border-mid);
   position: relative;
   transition: background 0.2s;
   flex-shrink: 0;
@@ -174,21 +174,21 @@ defineEmits(['back'])
   display: flex;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #444;
+  border: 1px solid var(--border-mid);
   flex-shrink: 0;
 }
 .segmented button {
   background: none;
   border: none;
-  color: #888;
+  color: var(--text-muted);
   padding: 6px 14px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.segmented button + button { border-left: 1px solid #444; }
+.segmented button + button { border-left: 1px solid var(--border-mid); }
 .segmented button.active { background: #b58863; color: #fff; }
-.segmented button:not(.active):hover { background: #333; color: #f0d9b5; }
+.segmented button:not(.active):hover { background: var(--seg-hover-bg); color: var(--seg-hover-text); }
 .segmented.faded { opacity: 0.4; pointer-events: none; }
 </style>

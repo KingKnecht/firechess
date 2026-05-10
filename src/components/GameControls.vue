@@ -273,17 +273,17 @@ function copyPgn() {
   justify-content: space-between;
   padding: 6px 10px;
   border-radius: 6px;
-  background: #e8e8e8;
+  background: var(--bg-surface);
   border: 2px solid transparent;
   transition: border-color 0.2s, background 0.2s;
 }
 .clock.active {
   border-color: #b58863;
-  background: #fff8ef;
+  background: var(--bg-active);
 }
 .clock.low .clock-time { color: #c0392b; animation: pulse 0.6s infinite; }
-.clock-label { font-size: 0.78rem; color: #666; }
-.clock-time  { font-family: monospace; font-size: 1.1rem; font-weight: 700; color: #222; }
+.clock-label { font-size: 0.78rem; color: var(--text-muted); }
+.clock-time  { font-family: monospace; font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
 
 .mode-label {
   display: flex;
@@ -295,18 +295,18 @@ function copyPgn() {
 }
 .home-link {
   background: none;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 5px;
   padding: 2px 8px;
   font-size: 0.78rem;
   cursor: pointer;
-  color: #666;
+  color: var(--text-muted);
 }
-.home-link:hover { background: #f5f5f5; }
+.home-link:hover { background: var(--btn-hover); }
 
 .color-info {
   font-size: 0.82rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .status {
@@ -389,25 +389,26 @@ function copyPgn() {
   padding: 8px 6px;
   border: none;
   border-radius: 6px;
-  background: #ddd;
+  background: var(--bg-surface);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
   transition: background 0.15s;
 }
-.btn:hover:not(:disabled)   { background: #bbb; }
+.btn:hover:not(:disabled)   { background: var(--border-mid); }
 .btn:disabled               { opacity: 0.4; cursor: not-allowed; }
 .btn.primary                { background: #b58863; color: #fff; }
 .btn.primary:hover          { background: #9a7252; }
 
 .history {
   flex: 1;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px;
   overflow-y: auto;
   max-height: 300px;
-  background: #fafafa;
+  background: var(--bg-surface);
 }
 
 .history-header {
@@ -416,17 +417,17 @@ function copyPgn() {
   justify-content: space-between;
   margin-bottom: 6px;
 }
-.history-title { font-weight: 700; font-size: 0.85rem; color: #555; }
+.history-title { font-weight: 700; font-size: 0.85rem; color: var(--text-muted); }
 .copy-pgn {
   background: none;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 0.7rem;
   padding: 1px 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-muted);
 }
-.copy-pgn:hover { background: #e8e8e8; }
+.copy-pgn:hover { background: var(--btn-hover); }
 
 .no-moves { color: #aaa; font-size: 0.82rem; }
 
@@ -440,8 +441,8 @@ function copyPgn() {
   align-content: flex-start;
 }
 .move-num { color: #999; }
-.move     { color: #222; cursor: pointer; padding: 0 2px; border-radius: 3px; }
-.move:hover { background: #e8e8e8; }
+.move     { color: var(--text-primary); cursor: pointer; padding: 0 2px; border-radius: 3px; }
+.move:hover { background: var(--bg-active); }
 .move.check { color: #d97706; font-weight: 700; }
 .move.mate  { color: #c0392b; font-weight: 700; }
 .move.view-move { background: #b58863; color: #fff !important; border-radius: 3px; }
@@ -452,7 +453,7 @@ function copyPgn() {
   gap: 4px;
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border);
 }
 .nav-btn {
   background: none;

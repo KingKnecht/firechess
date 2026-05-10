@@ -1258,12 +1258,12 @@ function onClickTray() {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #2c2c2c;
+  background: var(--bg-page-alt);
 }
 
 .viz-header {
-  background: #1a1a1a;
-  color: #f0d9b5;
+  background: var(--bg-header);
+  color: var(--text-on-dark);
   padding: 12px 24px;
   display: flex;
   align-items: center;
@@ -1286,7 +1286,7 @@ function onClickTray() {
   white-space: nowrap;
   transition: background 0.15s;
 }
-.back-btn:hover { background: rgba(240,217,181,0.15); }
+.back-btn:hover { background: var(--btn-hover); }
 .header-spacer { width: 90px; }
 
 .viz-body {
@@ -1429,7 +1429,7 @@ function onClickTray() {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #fff;
+  background: var(--bg-surface);
   border-radius: 8px;
   padding: 6px 10px;
 }
@@ -1515,7 +1515,7 @@ function onClickTray() {
 
 /* ── Setup panel ── */
 .setup-panel {
-  background: #fff;
+  background: var(--bg-panel);
   border-radius: 12px;
   box-shadow: 0 6px 24px rgba(0,0,0,0.35);
   padding: 20px;
@@ -1550,7 +1550,7 @@ function onClickTray() {
   padding: 5px 10px;
   border: 2px solid #b58863;
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg-surface);
   cursor: pointer;
   font-size: 0.8rem;
   font-weight: 600;
@@ -1639,7 +1639,7 @@ function onClickTray() {
 
 /* ── Side panel ── */
 .side-panel {
-  background: #fff;
+  background: var(--bg-panel);
   border-radius: 12px;
   box-shadow: 0 6px 24px rgba(0,0,0,0.35);
   padding: 20px;

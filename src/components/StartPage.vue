@@ -153,12 +153,12 @@ const trainingOptions = [
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #2c2c2c;
+  background: var(--bg-page-alt);
 }
 
 .start-header {
-  background: #1a1a1a;
-  color: #f0d9b5;
+  background: var(--bg-header);
+  color: var(--text-on-dark);
   padding: 20px 24px;
   text-align: center;
 }
@@ -179,7 +179,7 @@ const trainingOptions = [
 
 /* ── Card ── */
 .card {
-  background: #fff;
+  background: var(--bg-panel);
   border-radius: 12px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
   padding: 24px;
@@ -195,7 +195,7 @@ const trainingOptions = [
   gap: 10px;
   font-size: 1.15rem;
   font-weight: 700;
-  color: #1a1a1a;
+  color: var(--text-primary);
   border-bottom: 2px solid #f0d9b5;
   padding-bottom: 12px;
 }
@@ -228,8 +228,8 @@ const trainingOptions = [
   padding: 6px 12px;
   border: 2px solid #b58863;
   border-radius: 6px;
-  background: #fff;
-  color: #1a1a1a;
+  background: var(--bg-surface);
+  color: var(--text-primary);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -254,11 +254,11 @@ const trainingOptions = [
   padding: 10px 14px;
   border: 2px solid #b58863;
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-surface);
   cursor: pointer;
   font-size: 0.92rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
   text-align: left;
   transition: background 0.15s, color 0.15s;
 }

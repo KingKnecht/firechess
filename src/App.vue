@@ -166,6 +166,7 @@ const {
   init: clockInit, afterMove: clockAfterMove, stop: clockStop,
 } = useChessClock()
 
+// ─────────────────────────────────────────────────────────────────────────────
 const mode = ref('local')
 const view = ref('home')
 const prevView = ref('home')
@@ -397,11 +398,52 @@ watch(mode, (newMode, oldMode) => {
 </script>
 
 <style>
+/* ── Theme variables ─────────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark light;
+  --bg-page:      #1a1a1a;
+  --bg-page-alt:  #2c2c2c;
+  --bg-header:    #111;
+  --bg-panel:     #1e1e1e;
+  --bg-surface:   #2a2a2a;
+  --bg-input:     #111;
+  --bg-active:    #3a2e20;
+  --text-primary: #f0d9b5;
+  --text-on-dark: #f0d9b5;
+  --text-muted:   #888;
+  --text-dim:     #666;
+  --border:       #333;
+  --border-mid:   #444;
+  --btn-hover:    rgba(240,217,181,0.15);
+  --seg-hover-bg: #333;
+  --seg-hover-text: #f0d9b5;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-page:      #f5f0e8;
+    --bg-page-alt:  #ede8dc;
+    --bg-header:    #111;
+    --bg-panel:     #e8e2d8;
+    --bg-surface:   #ddd8cc;
+    --bg-input:     #f0ebe0;
+    --bg-active:    #f5e8d5;
+    --text-primary: #1a1a1a;
+    --text-on-dark: #f0d9b5;
+    --text-muted:   #666;
+    --text-dim:     #999;
+    --border:       #d0c8bc;
+    --border-mid:   #c0b8ae;
+    --btn-hover:    rgba(0,0,0,0.08);
+    --seg-hover-bg: #ddd8cc;
+    --seg-hover-text: #1a1a1a;
+  }
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   font-family: 'Segoe UI', system-ui, sans-serif;
-  background: #2c2c2c;
+  background: var(--bg-page-alt);
   color: #222;
   min-height: 100vh;
 }
@@ -472,7 +514,7 @@ body {
 }
 
 .app-main > :last-child {
-  background: #fff;
+  background: var(--bg-panel);
   border-radius: 10px;
   padding: 16px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.3);
