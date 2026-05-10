@@ -1366,7 +1366,7 @@ function onClickTray() {
 .piece.guided-done-wrong { opacity: 0.25; }
 
 .guided-palette { margin-top: 8px; }
-.guided-progress { font-size: 0.8rem; color: #888; }
+.guided-progress { font-size: 0.8rem; color: var(--text-muted); }
 .guided-feedback {
   text-align: center;
   font-size: 1.1rem;
@@ -1538,7 +1538,7 @@ function onClickTray() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .zone-grid {
@@ -1564,7 +1564,7 @@ function onClickTray() {
   accent-color: #b58863;
 }
 
-.radio-group { display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem; }
+.radio-group { display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem; color: var(--text-primary); }
 .radio-group label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 
 .range-row {
@@ -1573,13 +1573,16 @@ function onClickTray() {
   gap: 8px;
   font-size: 0.85rem;
   flex-wrap: wrap;
+  color: var(--text-primary);
 }
 .num-input {
   width: 52px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 5px;
   padding: 4px 6px;
   font-size: 0.88rem;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 .scan-btn {
   padding: 5px 10px;
@@ -1653,11 +1656,11 @@ function onClickTray() {
 .phase-title {
   font-size: 1.2rem;
   font-weight: 700;
-  color: #1a1a1a;
+  color: var(--text-primary);
   border-bottom: 2px solid #f0d9b5;
   padding-bottom: 10px;
 }
-.phase-hint { font-size: 0.78rem; color: #666; line-height: 1.55; }
+.phase-hint { font-size: 0.78rem; color: var(--text-muted); line-height: 1.55; }
 
 /* ── Countdown ring ── */
 .countdown-wrap {
@@ -1685,7 +1688,7 @@ function onClickTray() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #888;
+  color: var(--text-muted);
 }
 .palette-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .palette-piece {
@@ -1732,7 +1735,7 @@ function onClickTray() {
   padding: 14px;
 }
 .score-num { font-size: 1.8rem; font-weight: 700; color: #b58863; }
-.score-label { font-size: 0.75rem; color: #888; }
+.score-label { font-size: 0.75rem; color: var(--text-muted); }
 
 .result-legend {
   display: flex;

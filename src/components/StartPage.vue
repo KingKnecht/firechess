@@ -215,7 +215,7 @@ const trainingOptions = [
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .time-buttons {
@@ -278,8 +278,8 @@ const trainingOptions = [
 .soon-badge {
   font-size: 0.65rem;
   font-weight: 700;
-  background: #ddd;
-  color: #666;
+  background: var(--bg-surface);
+  color: var(--text-muted);
   padding: 2px 6px;
   border-radius: 10px;
   text-transform: uppercase;
