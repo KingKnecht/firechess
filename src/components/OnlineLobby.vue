@@ -96,6 +96,7 @@ async function copyLink() {
 .join-row .btn { width: auto; flex-shrink: 0; padding: 7px 14px; }
 .join-row input {
   flex: 1;
+  min-width: 0;
   padding: 7px 8px;
   border: 1px solid #ccc;
   border-radius: 6px;
