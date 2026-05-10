@@ -207,6 +207,27 @@
         <div :class="['train-feedback', trainFeedback]" v-if="trainFeedback">
           {{ trainFeedback === 'correct' ? '✓ Correct!' : trainFeedback === 'wrong' ? '✗ Try again' : trainFeedback === 'allClear' ? '🏆 All weaknesses cleared!' : '🎉 Line complete!' }}
         </div>
+
+        <!-- Variant picker overlay -->
+        <div v-if="variantPickerChoices" class="variant-picker-overlay">
+          <div class="variant-picker">
+            <div class="variant-picker-title">🔀 Which line do you want to play?</div>
+            <div class="variant-picker-subtitle">After opponent's move, the repertoire offers multiple responses. Pick your preferred line:</div>
+            <button
+              v-for="child in variantPickerChoices.children"
+              :key="child.id"
+              class="btn variant-btn"
+              @click="pickVariant(child, true)"
+            >
+              <span class="variant-san">{{ child.san }}</span>
+              <span class="variant-remember">📌 Set as preferred & train this</span>
+            </button>
+            <div class="variant-picker-divider"></div>
+            <button class="btn variant-btn random-btn" @click="pickVariantAllLines">
+              🎲 No preference — train all lines
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Info panel -->
@@ -273,6 +294,13 @@
         >💡 Show hint</button>
 
         <button class="btn" @click="restartTraining">↺ Restart</button>
+
+        <!-- Stored variation preferences -->
+        <div v-if="preferredMoves.size > 0" class="pref-summary">
+          <div class="pref-summary-label">📌 Saved variation preferences ({{ preferredMoves.size }})</div>
+          <button class="btn tiny" @click="clearAllPreferences">✕ Clear all</button>
+        </div>
+
         <button class="btn" style="color:var(--text-muted); font-size:0.78rem;" @click="resetProgress">🗑 Reset progress</button>
       </div>
     </div>
@@ -333,8 +361,10 @@ function openTraining(rep, mode = 'normal', lineNode = null) {
   const saved = loadRepTrainStats(rep.id)
   knownNodeIds.value = saved.knownNodeIds
   wrongCounts.value = saved.wrongCounts
+  preferredMoves.value = saved.preferredMoves
   trainMode.value = mode
   trainingLineNode.value = lineNode
+  variantPickerChoices.value = null
   subView.value = 'train'
   restartTraining()
 }
@@ -547,6 +577,11 @@ const hintRequested = ref(false)
 const trainMode = ref('normal') // 'normal' | 'weaknesses'
 const streak = ref(0)
 
+// ── Variant picker (opponent branching) ───────────────────────────────────────
+// When opponent has multiple choices and no stored preference, show picker.
+const variantPickerChoices = ref(null) // null | { fromNode, children, resolve }
+const preferredMoves = ref(new Map()) // nodeId → childId (opponent's preferred line)
+
 // ── Line-scoped training ──────────────────────────────────────────────────────
 const trainingLineNode = ref(null) // node where the chapter/line starts
 
@@ -650,8 +685,9 @@ function loadRepTrainStats(repId) {
     return {
       knownNodeIds: new Set(s.knownNodeIds ?? []),
       wrongCounts: new Map(Object.entries(s.wrongCounts ?? {})),
+      preferredMoves: new Map(Object.entries(s.preferredMoves ?? {})),
     }
-  } catch { return { knownNodeIds: new Set(), wrongCounts: new Map() } }
+  } catch { return { knownNodeIds: new Set(), wrongCounts: new Map(), preferredMoves: new Map() } }
 }
 
 function saveRepTrainStats(repId) {
@@ -660,6 +696,7 @@ function saveRepTrainStats(repId) {
     all[repId] = {
       knownNodeIds: [...knownNodeIds.value],
       wrongCounts: Object.fromEntries(wrongCounts.value),
+      preferredMoves: Object.fromEntries(preferredMoves.value),
       lastPracticed: Date.now(),
     }
     localStorage.setItem(TRAIN_KEY, JSON.stringify(all))
@@ -703,7 +740,13 @@ function resetProgress() {
   if (!confirm('Reset all progress for this repertoire? This clears known moves and wrong-move counts.')) return
   knownNodeIds.value = new Set()
   wrongCounts.value = new Map()
+  preferredMoves.value = new Map()
   streak.value = 0
+  saveRepTrainStats(currentRep.value.id)
+}
+
+function clearAllPreferences() {
+  preferredMoves.value = new Map()
   saveRepTrainStats(currentRep.value.id)
 }
 
@@ -728,10 +771,11 @@ const trainerLegalDots = computed(() => {
   if (!trainerSelected.value || !trainerCurrentNode.value) return []
   const allMoves = trainerChess.value.moves({ square: trainerSelected.value, verbose: true })
   const allowedIds = trainingLineAllowedIds.value
-  // Only show dots for moves that exist in the current repertoire line
+  const preferredChildId = preferredMoves.value.get(trainerCurrentNode.value.id)
+  // Only show dots for moves in the current repertoire (scoped to preferred if set)
   const validSans = new Set(
     (trainerCurrentNode.value.children ?? [])
-      .filter(c => !allowedIds || allowedIds.has(c.id))
+      .filter(c => (!allowedIds || allowedIds.has(c.id)) && (!preferredChildId || c.id === preferredChildId))
       .map(c => c.san)
   )
   return allMoves.filter(m => validSans.has(m.san)).map(m => m.to)
@@ -745,8 +789,12 @@ function restartTraining() {
   trainStats.value = { correct: 0, wrong: 0, lines: 0 }
   hintRequested.value = false
   streak.value = 0
+  variantPickerChoices.value = null
   if (currentRep.value?.color === 'b') {
     nextTick(() => opponentMove())
+  } else {
+    // User plays first — check if multiple user responses exist at root
+    nextTick(() => checkUserVariantPick(currentRep.value?.root))
   }
 }
 
@@ -774,7 +822,7 @@ function opponentMove() {
     const weakChildren = children.filter(c => hasWeakInSubtree(c))
     if (weakChildren.length > 0) children = weakChildren
   }
-  // Prefer children where user previously struggled
+  // Opponent always plays weighted random through all their lines
   const weights = children.map(c => 1 + (wrongCounts.value.get(c.id) ?? 0) * 3)
   const child = weightedChoice(children, weights)
   try {
@@ -782,9 +830,57 @@ function opponentMove() {
     triggerRef(trainerChess)
     trainerCurrentNode.value = child
     hintRequested.value = false
+    // After opponent moves, check if the user now has multiple response options → show picker
+    checkUserVariantPick(child)
   } catch (e) {
     console.error('opponentMove: invalid SAN', child.san, e)
   }
+}
+
+/**
+ * After any position change where it's the user's turn, check if the repertoire
+ * offers multiple responses. If so and no preference is stored, show the picker.
+ */
+function checkUserVariantPick(node) {
+  if (!node) return
+  const userColor = currentRep.value?.color
+  // The NEXT move belongs to the user if node's FEN has user's color to move
+  // We check the children — they represent the user's responses
+  let children = node.children ?? []
+  if (trainingLineAllowedIds.value) {
+    const scoped = children.filter(c => trainingLineAllowedIds.value.has(c.id))
+    if (scoped.length > 0) children = scoped
+  }
+  if (children.length <= 1) return // only one option, no choice needed
+  // Check if a preference is already stored
+  const preferred = preferredMoves.value.get(node.id)
+  if (preferred && children.find(c => c.id === preferred)) return // preference valid, no picker
+  // Multiple options, no valid preference → show picker
+  variantPickerChoices.value = { fromNode: node, children }
+}
+
+function pickVariant(child, remember) {
+  const fromNode = variantPickerChoices.value?.fromNode
+  variantPickerChoices.value = null
+  if (remember && fromNode) {
+    preferredMoves.value = new Map(preferredMoves.value).set(fromNode.id, child.id)
+    saveRepTrainStats(currentRep.value.id)
+  }
+  // Don't play the move — just set the preference; user still makes the move on the board
+  // Trigger arrow update so hint shows the preferred move
+  hintRequested.value = false
+}
+
+function pickVariantAllLines() {
+  // User wants to train all lines without preference — clear stored pref for this node
+  const fromNode = variantPickerChoices.value?.fromNode
+  if (fromNode && preferredMoves.value.has(fromNode.id)) {
+    const m = new Map(preferredMoves.value)
+    m.delete(fromNode.id)
+    preferredMoves.value = m
+    saveRepTrainStats(currentRep.value.id)
+  }
+  variantPickerChoices.value = null
 }
 
 function onTrainerSquareClick(sq) {
@@ -810,8 +906,11 @@ function onTrainerSquareClick(sq) {
       if (!san) return
 
       const allowedIds = trainingLineAllowedIds.value
+      const preferredChildId = preferredMoves.value.get(trainerCurrentNode.value.id)
       const match = trainerCurrentNode.value.children.find(c =>
-        c.san === san && (!allowedIds || allowedIds.has(c.id))
+        c.san === san &&
+        (!allowedIds || allowedIds.has(c.id)) &&
+        (!preferredChildId || c.id === preferredChildId)
       )
       if (match) {
         markNodeKnown(trainerCurrentNode.value.id)
@@ -1302,7 +1401,68 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   flex-direction: column;
   gap: 10px;
   align-items: center;
+  position: relative;
 }
+/* ── Variant picker overlay ───────────────────────────────────────────────── */
+.variant-picker-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.55);
+  border-radius: 12px;
+  z-index: 20;
+  padding: 12px;
+}
+.variant-picker {
+  background: var(--bg-card, #1e1e2e);
+  border: 1px solid var(--border, #3a3a4a);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+  max-width: 320px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.variant-picker-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary, #eee);
+  margin-bottom: 2px;
+  text-align: center;
+}
+.variant-picker-subtitle {
+  font-size: 0.7rem;
+  color: var(--text-muted, #888);
+  text-align: center;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.variant-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 8px 12px;
+  background: var(--bg-card2, rgba(255,255,255,0.06));
+  border: 1px solid var(--border, #3a3a4a);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+}
+.variant-btn:hover { background: var(--primary-dim, rgba(99,102,241,0.18)); border-color: var(--primary, #6366f1); }
+.variant-san { font-size: 1rem; font-weight: 700; color: var(--text-primary, #eee); font-family: monospace; }
+.variant-remember { font-size: 0.65rem; color: var(--text-muted, #888); }
+.random-btn .variant-san { font-family: inherit; font-size: 0.85rem; font-weight: 600; }
+.variant-picker-divider { height: 1px; background: var(--border, #3a3a4a); margin: 2px 0; }
+.random-btn { opacity: 0.75; }
+/* ── Pref summary ─────────────────────────────────────────────────────────── */
+.pref-summary { display: flex; align-items: center; justify-content: space-between; background: var(--bg-card2, rgba(255,255,255,0.04)); border: 1px solid var(--border, #3a3a4a); border-radius: 8px; padding: 6px 10px; gap: 8px; }
+.pref-summary-label { font-size: 0.72rem; color: var(--text-muted, #aaa); }
 .train-feedback {
   padding: 8px 20px;
   border-radius: 8px;
