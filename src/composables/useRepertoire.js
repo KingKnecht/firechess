@@ -55,6 +55,50 @@ function mergeTree(existing, incoming) {
   return added
 }
 
+/**
+ * Merge a parsed tree, tagging the first newly added node with chapterName.
+ * Returns count of newly added nodes.
+ */
+function mergeTreeWithChapter(existing, incoming, chapterName) {
+  let added = 0
+  let tagged = false
+
+  function merge(existingNode, incomingNode) {
+    for (const inChild of incomingNode.children ?? []) {
+      const match = existingNode.children.find(c => c.san === inChild.san)
+      if (match) {
+        if (inChild.annotation && !match.annotation) match.annotation = inChild.annotation
+        merge(match, inChild)
+      } else {
+        // Tag chapter name on the first genuinely new node
+        if (chapterName && !tagged) {
+          inChild.chapterName = chapterName
+          tagged = true
+        }
+        existingNode.children.push(inChild)
+        added += 1 + countNodes(inChild)
+      }
+    }
+  }
+
+  merge(existing, incoming)
+  return added
+}
+
+/**
+ * Walk the tree and return all named lines (nodes with chapterName set).
+ * Returns [{ name, nodeId, node }]
+ */
+export function getRepLines(root) {
+  const lines = []
+  function walk(node) {
+    if (node.chapterName) lines.push({ name: node.chapterName, nodeId: node.id, node })
+    for (const c of node.children ?? []) walk(c)
+  }
+  walk(root)
+  return lines
+}
+
 // ── Reactive store ────────────────────────────────────────────────────────────
 
 const repertoires = ref(load())
@@ -134,6 +178,31 @@ export function useRepertoire() {
     return mergeTree(rep.root, parsedRoot)
   }
 
+  /**
+   * Merge multiple parsed game trees (with chapter metadata) into the repertoire.
+   * Each game's chapterName is stored on the first new node it introduces.
+   * Returns total count of newly added nodes.
+   */
+  function importTreeWithChapters(repId, games) {
+    const rep = repertoires.value.find(r => r.id === repId)
+    if (!rep) return 0
+    let total = 0
+    for (const game of games) {
+      total += mergeTreeWithChapter(rep.root, game.root, game.chapterName || '')
+    }
+    return total
+  }
+
+  /**
+   * Toggle the preferred flag on a node (used for line preference in training).
+   */
+  function setPreferred(repId, nodeId, preferred) {
+    const rep = repertoires.value.find(r => r.id === repId)
+    if (!rep) return
+    const found = findNode(rep.root, nodeId)
+    if (found) found[0].preferred = preferred
+  }
+
   return {
     repertoires,
     addRepertoire,
@@ -143,5 +212,7 @@ export function useRepertoire() {
     removeNode,
     setAnnotation,
     importTree,
+    importTreeWithChapters,
+    setPreferred,
   }
 }

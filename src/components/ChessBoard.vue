@@ -21,6 +21,16 @@
       <transition name="flash-fade">
         <div v-if="flashLabel" :key="flashKey" class="move-flash">{{ flashLabel }}</div>
       </transition>
+      <!-- Arrow overlay -->
+      <svg v-if="arrowPolygons.length" class="arrow-overlay" viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg">
+        <polygon
+          v-for="(a, i) in arrowPolygons"
+          :key="i"
+          :points="a.points"
+          :fill="a.color"
+          fill-opacity="0.82"
+        />
+      </svg>
     </div>
   </div>
 </template>
@@ -41,6 +51,7 @@ const props = defineProps({
   showAllSquareNames: { type: Boolean, default: false },
   showMoveFlash:      { type: Boolean, default: true },
   lastMoveTo:         { type: String,  default: null },
+  arrows:             { type: Array,   default: () => [] },
 })
 
 const emit = defineEmits(['square-click', 'drop', 'promote'])
@@ -113,6 +124,47 @@ function onDrop({ from, to }) {
   if (props.myColor && piece.color !== props.myColor) return
   emit('drop', { from, to })
 }
+
+// ── Arrow rendering ───────────────────────────────────────────────────────────
+const FILES = 'abcdefgh'
+
+function sqCenter(sq) {
+  const fi = FILES.indexOf(sq[0])
+  const ri = parseInt(sq[1]) - 1
+  return props.flipped
+    ? { x: 7 - fi + 0.5, y: ri + 0.5 }
+    : { x: fi + 0.5, y: 7 - ri + 0.5 }
+}
+
+function buildArrowPolygon(fromSq, toSq, color = '#f6b100') {
+  const p1 = sqCenter(fromSq)
+  const p2 = sqCenter(toSq)
+  const dx = p2.x - p1.x, dy = p2.y - p1.y
+  const len = Math.sqrt(dx * dx + dy * dy)
+  if (len < 0.01) return null
+  const ux = dx / len, uy = dy / len
+  const px = -uy, py = ux
+  const bw = 0.1, hw = 0.24, headLen = 0.36, tail = 0.24
+  const s = { x: p1.x + ux * tail,      y: p1.y + uy * tail }
+  const e = { x: p2.x - ux * headLen,   y: p2.y - uy * headLen }
+  const t = { x: p2.x - ux * 0.06,      y: p2.y - uy * 0.06 }
+  const pts = [
+    { x: s.x + px * bw,  y: s.y + py * bw },
+    { x: e.x + px * bw,  y: e.y + py * bw },
+    { x: e.x + px * hw,  y: e.y + py * hw },
+    t,
+    { x: e.x - px * hw,  y: e.y - py * hw },
+    { x: e.x - px * bw,  y: e.y - py * bw },
+    { x: s.x - px * bw,  y: s.y - py * bw },
+  ]
+  return { points: pts.map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(' '), color }
+}
+
+const arrowPolygons = computed(() =>
+  props.arrows
+    .map(a => buildArrowPolygon(a.from, a.to, a.color ?? '#f6b100'))
+    .filter(Boolean)
+)
 </script>
 
 <style scoped>
@@ -161,4 +213,13 @@ function onDrop({ from, to }) {
 /* Vue transition used so element is removed from DOM after animation */
 .flash-fade-leave-active { transition: opacity 0s; }
 .flash-fade-leave-to     { opacity: 0; }
+
+.arrow-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
 </style>

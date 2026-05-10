@@ -176,7 +176,47 @@ function cleanTree(node) {
   node.children.forEach(cleanTree)
 }
 
+// ── Header extraction ─────────────────────────────────────────────────────────
+
+function extractHeaders(rawGameText) {
+  const headers = {}
+  const re = /\[(\w+)\s+"([^"]*)"\]/g
+  let m
+  while ((m = re.exec(rawGameText)) !== null) headers[m[1]] = m[2]
+  return headers
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Parse a multi-game PGN and return structured game metadata + trees.
+ * Each item: { chapterName, studyName, opening, eco, root }
+ * Falls back gracefully for single-game PGNs without headers.
+ */
+export function parsePgnGames(pgnText) {
+  // Split raw text into per-game segments on [Event ...] tag boundaries
+  const gameTexts = pgnText.split(/(?=\[Event\s+")/).filter(s => s.trim())
+
+  const result = []
+  for (const gameText of gameTexts) {
+    const trees = parsePgnToTrees(gameText)
+    if (!trees.length) continue
+    const h = extractHeaders(gameText)
+    result.push({
+      chapterName: h.ChapterName || h.Event || '',
+      studyName:   h.StudyName  || '',
+      opening:     h.Opening    || '',
+      eco:         h.ECO        || '',
+      root:        trees[0],
+    })
+  }
+  // Fallback: no [Event] tags — treat whole text as one unnamed game
+  if (!result.length) {
+    const trees = parsePgnToTrees(pgnText)
+    if (trees.length) result.push({ chapterName: '', studyName: '', opening: '', eco: '', root: trees[0] })
+  }
+  return result
+}
 
 /**
  * Parse a PGN string (single or multi-game) and return an array of root nodes.

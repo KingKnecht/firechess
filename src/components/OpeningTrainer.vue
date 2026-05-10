@@ -36,17 +36,55 @@
         <!-- Cards -->
         <div class="rep-list">
           <div v-for="rep in repertoires" :key="rep.id" class="rep-card">
-            <div class="rep-card-left">
-              <span :class="['color-badge', rep.color === 'w' ? 'white' : 'black']">
-                {{ rep.color === 'w' ? '♔ White' : '♚ Black' }}
-              </span>
-              <span class="rep-name">{{ rep.name }}</span>
-              <span class="rep-count">{{ countNodes(rep.root) }} moves</span>
+            <div class="rep-card-top">
+              <div class="rep-card-left">
+                <span :class="['color-badge', rep.color === 'w' ? 'white' : 'black']">
+                  {{ rep.color === 'w' ? '♔ White' : '♚ Black' }}
+                </span>
+                <span class="rep-name">{{ rep.name }}</span>
+              </div>
+              <div class="rep-card-actions">
+                <button class="btn small" @click="openEditor(rep)">✏️ Edit</button>
+                <button class="btn small primary" @click="openTraining(rep)">🎓 Train</button>
+                <button v-if="getCardStats(rep).weakCount > 0" class="btn small weakness-btn" @click="openTrainingWeaknesses(rep)">🎯 Weaknesses</button>
+                <button class="btn small danger" @click="confirmDelete(rep)">🗑️</button>
+              </div>
             </div>
-            <div class="rep-card-actions">
-              <button class="btn small" @click="openEditor(rep)">✏️ Edit</button>
-              <button class="btn small primary" @click="openTraining(rep)">🎓 Train</button>
-              <button class="btn small danger" @click="confirmDelete(rep)">🗑️</button>
+            <div class="rep-card-stats">
+              <div class="rep-progress-wrap">
+                <div class="rep-progress-bar">
+                  <div class="rep-progress-fill" :style="{ width: getCardStats(rep).progress + '%' }"></div>
+                </div>
+                <span class="rep-progress-label">{{ getCardStats(rep).knownCount }}/{{ countNodes(rep.root) }} moves known</span>
+              </div>
+              <div class="rep-card-meta">
+                <span v-if="getCardStats(rep).weakCount > 0" class="rep-weak-badge">⚡ {{ getCardStats(rep).weakCount }} weak</span>
+                <span v-if="getCardStats(rep).lastPracticed" class="rep-last-practiced">{{ formatRelativeDate(getCardStats(rep).lastPracticed) }}</span>
+                <button v-if="getRepLines(rep.root).length > 0" class="btn tiny lines-toggle" @click="toggleLines(rep.id)">
+                  {{ expandedReps.has(rep.id) ? '▲' : '▼' }} {{ getRepLines(rep.root).length }} lines
+                </button>
+              </div>
+            </div>
+            <!-- Named lines (chapters) expandable -->
+            <div v-if="expandedReps.has(rep.id) && getRepLines(rep.root).length" class="rep-lines">
+              <div v-for="line in getRepLines(rep.root)" :key="line.nodeId" class="rep-line-row">
+                <div class="rep-line-info">
+                  <span class="rep-line-name">{{ line.name }}</span>
+                  <div class="rep-line-progress-wrap">
+                    <div class="rep-line-bar">
+                      <div class="rep-line-fill"
+                        :style="{ width: getLineStats(rep, line.node).total > 0 ? (getLineStats(rep, line.node).knownCount / getLineStats(rep, line.node).total * 100) + '%' : '0%' }">
+                      </div>
+                    </div>
+                    <span class="rep-line-label">{{ getLineStats(rep, line.node).knownCount }}/{{ getLineStats(rep, line.node).total }}</span>
+                    <span v-if="getLineStats(rep, line.node).weakCount > 0" class="rep-weak-badge small">⚡{{ getLineStats(rep, line.node).weakCount }}</span>
+                  </div>
+                </div>
+                <div class="rep-line-actions">
+                  <button class="btn tiny primary" @click="openTraining(rep, 'normal', line.node)">🎓</button>
+                  <button v-if="getLineStats(rep, line.node).weakCount > 0" class="btn tiny weakness-btn" @click="openTrainingWeaknesses(rep, line.node)">🎯</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -72,6 +110,17 @@
           <button class="btn small" @click="editorGoBack" :disabled="!editorPath.length">← Back</button>
           <span class="board-turn-label">{{ editorTurnLabel }}</span>
           <button class="btn small" @click="editorFlipped = !editorFlipped">⇅ Flip</button>
+          <button class="btn small" @click="fetchEval" :disabled="evalLoading">{{ evalLoading ? '⏳ Eval…' : '📊 Eval' }}</button>
+        </div>
+        <div v-if="evalData" class="eval-panel">
+          <div v-if="evalData.error" class="eval-error">{{ evalData.error }}</div>
+          <template v-else>
+            <div class="eval-header">☁️ Lichess cloud eval</div>
+            <div v-for="(pv, i) in (evalData.pvs ?? [])" :key="i" class="eval-row">
+              <span class="eval-score">{{ pv.cp !== undefined ? (pv.cp > 0 ? '+' : '') + (pv.cp / 100).toFixed(2) : (pv.mate > 0 ? '#' + pv.mate : '-#' + Math.abs(pv.mate)) }}</span>
+              <span class="eval-moves">{{ (pv.moves ?? '').split(' ').slice(0, 5).join(' ') }}</span>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -142,11 +191,12 @@
           :activeTurn="trainerChess.turn()"
           :myColor="currentRep?.color"
           :showMoveFlash="false"
+          :arrows="trainerArrows"
           @square-click="onTrainerSquareClick"
           @drop="onTrainerDrop"
         />
         <div :class="['train-feedback', trainFeedback]" v-if="trainFeedback">
-          {{ trainFeedback === 'correct' ? '✓ Correct!' : trainFeedback === 'wrong' ? '✗ Try again' : '🎉 Line complete!' }}
+          {{ trainFeedback === 'correct' ? '✓ Correct!' : trainFeedback === 'wrong' ? '✗ Try again' : trainFeedback === 'allClear' ? '🏆 All weaknesses cleared!' : '🎉 Line complete!' }}
         </div>
       </div>
 
@@ -155,6 +205,19 @@
         <div class="panel-header">
           <button class="back-btn small" @click="subView = 'list'">← Repertoires</button>
         </div>
+
+        <!-- Line/chapter name banner -->
+        <div v-if="trainingLineNode?.chapterName" class="line-banner">
+          📖 {{ trainingLineNode.chapterName }}
+          <button class="btn tiny" style="margin-left:8px;" @click="trainingLineNode = null">All lines</button>
+        </div>
+
+        <!-- Weakness mode banner -->
+        <div v-if="trainMode === 'weaknesses'" class="weakness-banner">
+          🎯 Weakness mode
+          <button class="btn small" style="font-size:0.72rem; padding:2px 7px; margin-left:8px;" @click="trainMode = 'normal'">Normal</button>
+        </div>
+
         <div class="trainer-rep-info">
           <span class="rep-name">{{ currentRep?.name }}</span>
           <span :class="['color-badge', currentRep?.color === 'w' ? 'white' : 'black']">
@@ -175,6 +238,14 @@
             <span class="stat-num">{{ trainStats.lines }}</span>
             <span class="stat-label">Lines</span>
           </div>
+          <div class="stat" v-if="streak >= 3">
+            <span class="stat-num streak-num">{{ streak }}🔥</span>
+            <span class="stat-label">Streak</span>
+          </div>
+          <div class="stat" v-if="weakPositionCount > 0">
+            <span class="stat-num weak-num">{{ weakPositionCount }}</span>
+            <span class="stat-label">Weak</span>
+          </div>
         </div>
 
         <div class="train-hint">
@@ -186,7 +257,14 @@
           💡 {{ trainerCurrentAnnotation }}
         </div>
 
+        <button
+          v-if="!showArrows && trainerCurrentNode?.children?.length && trainerChess.turn() === currentRep?.color"
+          class="btn hint-btn"
+          @click="hintRequested = true"
+        >💡 Show hint</button>
+
         <button class="btn" @click="restartTraining">↺ Restart</button>
+        <button class="btn" style="color:var(--text-muted); font-size:0.78rem;" @click="resetProgress">🗑 Reset progress</button>
       </div>
     </div>
   </div>
@@ -195,14 +273,14 @@
 <script setup>
 import { ref, shallowRef, triggerRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Chess } from 'chess.js'
-import { useRepertoire, countNodes, findNode } from '../composables/useRepertoire.js'
-import { parsePgnToTree } from '../utils/pgnVariantParser.js'
+import { useRepertoire, countNodes, findNode, getRepLines } from '../composables/useRepertoire.js'
+import { parsePgnToTree, parsePgnGames } from '../utils/pgnVariantParser.js'
 import RepertoireTree from './RepertoireTree.vue'
 import ChessBoard from './ChessBoard.vue'
 
 const emit = defineEmits(['back'])
 
-const { repertoires, addRepertoire, deleteRepertoire, addMove, removeNode, setAnnotation, importTree } = useRepertoire()
+const { repertoires, addRepertoire, deleteRepertoire, addMove, removeNode, setAnnotation, importTree, importTreeWithChapters, setPreferred } = useRepertoire()
 
 // ── Shared state ────────────────────────────────────────────────────────────
 const subView = ref('list')
@@ -237,14 +315,23 @@ function openEditor(rep) {
   editorReset()
 }
 
-function openTraining(rep) {
+function openTraining(rep, mode = 'normal', lineNode = null) {
   if (!rep.root.children.length) {
     alert('This repertoire is empty. Add some moves first.')
     return
   }
   currentRep.value = rep
+  const saved = loadRepTrainStats(rep.id)
+  knownNodeIds.value = saved.knownNodeIds
+  wrongCounts.value = saved.wrongCounts
+  trainMode.value = mode
+  trainingLineNode.value = lineNode
   subView.value = 'train'
   restartTraining()
+}
+
+function openTrainingWeaknesses(rep, lineNode = null) {
+  openTraining(rep, 'weaknesses', lineNode)
 }
 
 // ── Editor view ───────────────────────────────────────────────────────────────
@@ -405,9 +492,15 @@ function saveAnnotation() {
 function doImport() {
   if (!importPgn.value.trim() || !currentRep.value) return
   try {
-    const parsed = parsePgnToTree(importPgn.value)
-    const added = importTree(currentRep.value.id, parsed)
-    importMsg.value = added > 0 ? `✓ Added ${added} new move${added !== 1 ? 's' : ''}.` : 'No new moves found (already in repertoire).'
+    const games = parsePgnGames(importPgn.value)
+    const hasChapters = games.some(g => g.chapterName)
+    let added
+    if (hasChapters) {
+      added = importTreeWithChapters(currentRep.value.id, games)
+    } else {
+      added = games.reduce((sum, g) => sum + importTree(currentRep.value.id, g.root), 0)
+    }
+    importMsg.value = added > 0 ? `✓ Added ${added} new move${added !== 1 ? 's' : ''}${hasChapters ? ` across ${games.length} chapter${games.length !== 1 ? 's' : ''}` : ''}.` : 'No new moves found (already in repertoire).'
     importMsgType.value = added > 0 ? 'ok' : 'warn'
     if (added > 0) editorTab.value = 'tree'
     importPgn.value = ''
@@ -425,10 +518,198 @@ const trainerSelected = ref(null)
 const trainerCurrentNode = ref(null)
 const trainFeedback = ref('')
 const trainStats = ref({ correct: 0, wrong: 0, lines: 0 })
+const hintRequested = ref(false)
+const trainMode = ref('normal') // 'normal' | 'weaknesses'
+const streak = ref(0)
+
+// ── Line-scoped training ──────────────────────────────────────────────────────
+const trainingLineNode = ref(null) // node where the chapter/line starts
+
+const trainingLineAllowedIds = computed(() => {
+  if (!trainingLineNode.value || !currentRep.value) return null
+  const ids = new Set()
+  // Walk from root to lineNode, collecting path
+  function findPath(node, target, path) {
+    if (node.id === target.id) { path.forEach(n => ids.add(n.id)); ids.add(node.id); return true }
+    for (const c of node.children ?? []) {
+      if (findPath(c, target, [...path, node])) return true
+    }
+    return false
+  }
+  findPath(currentRep.value.root, trainingLineNode.value, [])
+  // Add full subtree from lineNode
+  function addSubtree(node) { ids.add(node.id); (node.children ?? []).forEach(addSubtree) }
+  addSubtree(trainingLineNode.value)
+  return ids
+})
+
+// ── Card expanded lines ───────────────────────────────────────────────────────
+const expandedReps = ref(new Set())
+
+function toggleLines(repId) {
+  const s = new Set(expandedReps.value)
+  s.has(repId) ? s.delete(repId) : s.add(repId)
+  expandedReps.value = s
+}
+
+function getLineStats(rep, lineNode) {
+  const td = allTrainData.value[rep.id] ?? {}
+  const known = td.knownNodeIds ?? []
+  const wrong = td.wrongCounts ?? {}
+  let knownCount = 0, weakCount = 0, total = 0
+  function walk(node) {
+    if (node.children?.length) { total++; if (known.includes(node.id)) knownCount++ }
+    const wrongC = wrong[node.id] ?? 0
+    if (wrongC >= 2) weakCount++
+    node.children?.forEach(walk)
+  }
+  walk(lineNode)
+  return { knownCount, total, weakCount }
+}
+
+// ── Lichess cloud eval ────────────────────────────────────────────────────────
+const evalData = ref(null)
+const evalLoading = ref(false)
+
+async function fetchEval() {
+  if (!editorChess.value) return
+  const fen = editorChess.value.fen()
+  evalLoading.value = true
+  evalData.value = null
+  try {
+    const url = `https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=3`
+    const resp = await fetch(url)
+    if (resp.ok) evalData.value = await resp.json()
+    else evalData.value = { error: 'No evaluation found for this position.' }
+  } catch {
+    evalData.value = { error: 'Could not reach Lichess. Check your connection.' }
+  }
+  evalLoading.value = false
+}
+
+// ── All-rep training data for card display ────────────────────────────────────
+const allTrainData = ref({})
+
+function refreshAllTrainData() {
+  try { allTrainData.value = JSON.parse(localStorage.getItem(TRAIN_KEY) ?? '{}') }
+  catch { allTrainData.value = {} }
+}
+
+function getCardStats(rep) {
+  const s = allTrainData.value[rep.id] ?? {}
+  const knownCount = (s.knownNodeIds ?? []).length
+  const wrongCounts = s.wrongCounts ?? {}
+  const weakCount = Object.values(wrongCounts).filter(v => v > 0).length
+  const total = countNodes(rep.root)
+  const progress = total > 0 ? Math.min(100, Math.round(knownCount / total * 100)) : 0
+  return { knownCount, progress, weakCount, lastPracticed: s.lastPracticed ?? null }
+}
+
+function formatRelativeDate(ts) {
+  if (!ts) return null
+  const days = Math.floor((Date.now() - ts) / 86400000)
+  if (days === 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return `${days}d ago`
+  if (days < 30) return `${Math.floor(days / 7)}w ago`
+  return `${Math.floor(days / 30)}mo ago`
+}
+
+// ── Persistent training stats (per repertoire) ────────────────────────────────
+const TRAIN_KEY = 'firechess_train_stats'
+
+function loadRepTrainStats(repId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TRAIN_KEY) ?? '{}')
+    const s = all[repId] ?? {}
+    return {
+      knownNodeIds: new Set(s.knownNodeIds ?? []),
+      wrongCounts: new Map(Object.entries(s.wrongCounts ?? {})),
+    }
+  } catch { return { knownNodeIds: new Set(), wrongCounts: new Map() } }
+}
+
+function saveRepTrainStats(repId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TRAIN_KEY) ?? '{}')
+    all[repId] = {
+      knownNodeIds: [...knownNodeIds.value],
+      wrongCounts: Object.fromEntries(wrongCounts.value),
+      lastPracticed: Date.now(),
+    }
+    localStorage.setItem(TRAIN_KEY, JSON.stringify(all))
+    refreshAllTrainData()
+  } catch {}
+}
+
+const knownNodeIds = ref(new Set())
+const wrongCounts  = ref(new Map())
+
+const weakPositionCount = computed(() => {
+  if (!currentRep.value) return 0
+  let count = 0
+  function walk(node) {
+    if (wrongCounts.value.get(node.id) > 0) count++
+    for (const c of node.children ?? []) walk(c)
+  }
+  walk(currentRep.value.root)
+  return count
+})
+
+function markNodeKnown(nodeId) {
+  if (knownNodeIds.value.has(nodeId)) return
+  knownNodeIds.value = new Set([...knownNodeIds.value, nodeId])
+  saveRepTrainStats(currentRep.value.id)
+}
+
+function recordWrong(nodeId) {
+  const prev = wrongCounts.value.get(nodeId) ?? 0
+  wrongCounts.value = new Map(wrongCounts.value).set(nodeId, prev + 1)
+  saveRepTrainStats(currentRep.value.id)
+}
+
+function hasWeakInSubtree(node) {
+  if ((wrongCounts.value.get(node.id) ?? 0) > 0) return true
+  return node.children?.some(c => hasWeakInSubtree(c)) ?? false
+}
+
+function resetProgress() {
+  if (!currentRep.value) return
+  if (!confirm('Reset all progress for this repertoire? This clears known moves and wrong-move counts.')) return
+  knownNodeIds.value = new Set()
+  wrongCounts.value = new Map()
+  streak.value = 0
+  saveRepTrainStats(currentRep.value.id)
+}
+
+// Show arrows when: position is new (not yet known) OR user requested hint
+const isNewPosition = computed(() => {
+  if (!trainerCurrentNode.value) return false
+  if (trainerChess.value.turn() !== currentRep.value?.color) return false
+  return !knownNodeIds.value.has(trainerCurrentNode.value.id)
+})
+const showArrows = computed(() => isNewPosition.value || hintRequested.value)
+const trainerArrows = computed(() => {
+  if (!showArrows.value) return []
+  const node = trainerCurrentNode.value
+  if (!node?.children?.length) return []
+  if (trainerChess.value.turn() !== currentRep.value?.color) return []
+  return node.children
+    .filter(c => c.from && c.to)
+    .map(c => ({ from: c.from, to: c.to }))
+})
 
 const trainerLegalDots = computed(() => {
-  if (!trainerSelected.value) return []
-  return trainerChess.value.moves({ square: trainerSelected.value, verbose: true }).map(m => m.to)
+  if (!trainerSelected.value || !trainerCurrentNode.value) return []
+  const allMoves = trainerChess.value.moves({ square: trainerSelected.value, verbose: true })
+  const allowedIds = trainingLineAllowedIds.value
+  // Only show dots for moves that exist in the current repertoire line
+  const validSans = new Set(
+    (trainerCurrentNode.value.children ?? [])
+      .filter(c => !allowedIds || allowedIds.has(c.id))
+      .map(c => c.san)
+  )
+  return allMoves.filter(m => validSans.has(m.san)).map(m => m.to)
 })
 
 function restartTraining() {
@@ -437,19 +718,45 @@ function restartTraining() {
   trainerCurrentNode.value = currentRep.value?.root ?? null
   trainFeedback.value = ''
   trainStats.value = { correct: 0, wrong: 0, lines: 0 }
+  hintRequested.value = false
+  streak.value = 0
   if (currentRep.value?.color === 'b') {
     nextTick(() => opponentMove())
   }
 }
 
+function weightedChoice(items, weights) {
+  const total = weights.reduce((a, b) => a + b, 0)
+  let r = Math.random() * total
+  for (let i = 0; i < items.length; i++) {
+    r -= weights[i]
+    if (r <= 0) return items[i]
+  }
+  return items[items.length - 1]
+}
+
 function opponentMove() {
   const node = trainerCurrentNode.value
   if (!node?.children?.length) return
-  const child = node.children[Math.floor(Math.random() * node.children.length)]
+  let children = node.children
+  // Restrict to line scope if training a specific line
+  if (trainingLineAllowedIds.value) {
+    const scoped = children.filter(c => trainingLineAllowedIds.value.has(c.id))
+    if (scoped.length > 0) children = scoped
+  }
+  // In weakness mode, prefer paths that lead through weak positions
+  if (trainMode.value === 'weaknesses') {
+    const weakChildren = children.filter(c => hasWeakInSubtree(c))
+    if (weakChildren.length > 0) children = weakChildren
+  }
+  // Prefer children where user previously struggled
+  const weights = children.map(c => 1 + (wrongCounts.value.get(c.id) ?? 0) * 3)
+  const child = weightedChoice(children, weights)
   try {
     trainerChess.value.move(child.san)
     triggerRef(trainerChess)
     trainerCurrentNode.value = child
+    hintRequested.value = false
   } catch (e) {
     console.error('opponentMove: invalid SAN', child.san, e)
   }
@@ -477,9 +784,15 @@ function onTrainerSquareClick(sq) {
       trainerSelected.value = null
       if (!san) return
 
-      const match = trainerCurrentNode.value.children.find(c => c.san === san)
+      const allowedIds = trainingLineAllowedIds.value
+      const match = trainerCurrentNode.value.children.find(c =>
+        c.san === san && (!allowedIds || allowedIds.has(c.id))
+      )
       if (match) {
+        markNodeKnown(trainerCurrentNode.value.id)
+        hintRequested.value = false
         trainStats.value.correct++
+        streak.value++
         trainerCurrentNode.value = match
         showFeedback('correct')
 
@@ -499,7 +812,9 @@ function onTrainerSquareClick(sq) {
         }
       } else {
         // Wrong move — revert
+        recordWrong(trainerCurrentNode.value.id)
         trainStats.value.wrong++
+        streak.value = 0
         trainerChess.value.undo()
         triggerRef(trainerChess)
         showFeedback('wrong')
@@ -525,10 +840,17 @@ function onTrainerDrop({ from, to }) {
 function showFeedback(type) { trainFeedback.value = type }
 
 function nextLineOrRestart() {
+  // In weakness mode, check if all weaknesses are resolved
+  if (trainMode.value === 'weaknesses' && !hasWeakInSubtree(currentRep.value.root)) {
+    showFeedback('allClear')
+    trainMode.value = 'normal'
+    return
+  }
   // Restart from root, let opponent go first if user plays black
   trainerChess.value = new Chess()
   trainerSelected.value = null
   trainerCurrentNode.value = currentRep.value.root
+  hintRequested.value = false
   if (currentRep.value.color === 'b') opponentMove()
 }
 
@@ -577,7 +899,10 @@ function onKeydown(e) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  refreshAllTrainData()
+})
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
@@ -721,14 +1046,38 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   border-radius: 10px;
   padding: 14px 18px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 10px;
   box-shadow: 0 2px 10px rgba(0,0,0,0.25);
 }
+.rep-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rep-card-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .rep-name { font-weight: 700; font-size: 1rem; }
 .rep-count { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
 .rep-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.weakness-btn { color: #e74c3c; border-color: #e74c3c33; }
+.weakness-btn:hover:not(:disabled) { background: #e74c3c22; }
+
+/* ── Rep card stats row ── */
+.rep-card-stats { display: flex; flex-direction: column; gap: 5px; }
+.rep-progress-wrap { display: flex; align-items: center; gap: 8px; }
+.rep-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-surface);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rep-progress-fill {
+  height: 100%;
+  background: #b58863;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.rep-progress-label { font-size: 0.74rem; color: var(--text-muted); white-space: nowrap; }
+.rep-card-meta { display: flex; gap: 10px; align-items: center; }
+.rep-weak-badge { font-size: 0.74rem; color: #e74c3c; font-weight: 600; }
+.rep-last-practiced { font-size: 0.74rem; color: var(--text-muted); }
 
 /* ── Editor layout ── */
 .editor-body { justify-content: center; }
@@ -911,6 +1260,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .train-feedback.correct { background: #1a4a2a; color: #4ade80; }
 .train-feedback.wrong   { background: #3a1010; color: #f87171; }
 .train-feedback.done    { background: #1a3a4a; color: #60c9f8; }
+.train-feedback.allClear { background: #2a1a4a; color: #c084fc; }
 
 .trainer-panel {
   background: var(--bg-panel);
@@ -931,8 +1281,23 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 .stat { display: flex; flex-direction: column; align-items: center; flex: 1; }
 .stat-num { font-size: 1.5rem; font-weight: 700; color: #b58863; }
+.stat-num.weak-num { color: #f87171; }
+.stat-num.streak-num { color: #fb923c; }
 .stat-label { font-size: 0.7rem; color: var(--text-muted); }
 .train-hint { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
+.hint-btn { background: #3a2800; color: #fbbf24; border-color: #7a5a00; }
+
+/* ── Weakness mode banner ── */
+.weakness-banner {
+  display: flex;
+  align-items: center;
+  background: #3a1010;
+  color: #f87171;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
 .train-annotation {
   font-size: 0.82rem;
   color: var(--text-primary);
@@ -944,6 +1309,31 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* ── Named lines expandable section ─────────────────────────────────────────── */
+.lines-toggle { font-size: 0.7rem; padding: 1px 6px; }
+.rep-lines { border-top: 1px solid var(--border, #3a3a4a); margin-top: 6px; padding-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.rep-line-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; background: var(--bg-card2, rgba(255,255,255,0.04)); }
+.rep-line-info { flex: 1; min-width: 0; }
+.rep-line-name { font-size: 0.78rem; font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rep-line-progress-wrap { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.rep-line-bar { flex: 1; height: 5px; border-radius: 3px; background: var(--bar-bg, rgba(255,255,255,0.12)); overflow: hidden; }
+.rep-line-fill { height: 100%; border-radius: 3px; background: var(--primary, #6366f1); transition: width 0.4s; }
+.rep-line-label { font-size: 0.65rem; color: var(--text-muted, #888); white-space: nowrap; }
+.rep-line-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.btn.tiny { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; }
+.rep-weak-badge.small { font-size: 0.65rem; }
+
+/* ── Line banner in trainer ───────────────────────────────────────────────────── */
+.line-banner { background: #1a2a1a; color: #86efac; border: 1px solid #22c55e; border-radius: 8px; padding: 6px 12px; font-size: 0.78rem; margin: 6px 0; display: flex; align-items: center; flex-wrap: wrap; }
+
+/* ── Lichess eval panel ───────────────────────────────────────────────────────── */
+.eval-panel { background: var(--bg-card2, rgba(255,255,255,0.05)); border: 1px solid var(--border, #3a3a4a); border-radius: 8px; padding: 8px 12px; margin-top: 6px; font-size: 0.78rem; }
+.eval-header { font-weight: 700; margin-bottom: 4px; color: var(--text-muted, #aaa); font-size: 0.72rem; }
+.eval-row { display: flex; gap: 10px; margin: 2px 0; }
+.eval-score { font-weight: 700; min-width: 44px; color: var(--primary, #6366f1); }
+.eval-moves { color: var(--text, #ddd); font-family: monospace; font-size: 0.72rem; }
+.eval-error { color: #f87171; font-size: 0.72rem; }
 
 @media (max-width: 800px) {
   .ot-body { flex-direction: column; align-items: center; }
