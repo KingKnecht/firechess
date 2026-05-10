@@ -1,8 +1,8 @@
-import { ref, computed } from 'vue'
+import { ref, shallowRef, triggerRef, computed } from 'vue'
 import { Chess } from 'chess.js'
 
 export function useChessGame() {
-  const chess = ref(new Chess())
+  const chess = shallowRef(new Chess())
   const fen = ref(chess.value.fen())
   const fenHistory = ref([chess.value.fen()])  // fenHistory[i] = position after move i (0 = start)
   const moveHistory = ref([])
@@ -121,6 +121,7 @@ export function useChessGame() {
     const result = chess.value.move({ from, to, promotion })
     if (!result) return false
 
+    triggerRef(chess)
     fen.value = chess.value.fen()
     fenHistory.value.push(fen.value)
     moveHistory.value.push(result)
@@ -141,6 +142,7 @@ export function useChessGame() {
     if (moveHistory.value.length === 0) return
     viewIndex.value = null  // snap back to current before undoing
     chess.value.undo()
+    triggerRef(chess)
     moveHistory.value.pop()
     fenHistory.value.pop()
     fen.value = chess.value.fen()
@@ -185,6 +187,7 @@ export function useChessGame() {
   function loadFen(newFen) {
     try {
       chess.value.load(newFen)
+      triggerRef(chess)
       fen.value = newFen
       fenHistory.value = [newFen]
       moveHistory.value = []
@@ -201,6 +204,7 @@ export function useChessGame() {
     try {
       const result = chess.value.move(moveObj)
       if (result) {
+        triggerRef(chess)
         fen.value = chess.value.fen()
         fenHistory.value.push(fen.value)
         moveHistory.value.push(result)
