@@ -264,53 +264,96 @@ export function parsePgnToTree(pgnText, fromFen = null) {
  * Annotations are written as { comment } blocks.
  */
 export function treeToPgn(root, repName = '') {
-  const headers = [
-    `[Event "${repName}"]`,
-    '[Site "FireChess"]',
-    `[Date "${new Date().toISOString().slice(0, 10)}"]`,
-    '[White "?"]',
-    '[Black "?"]',
-    '[Result "*"]',
-  ].join('\n')
+  const date = new Date().toISOString().slice(0, 10)
 
-  // chess.js instance to track move numbers
-  const chess = new Chess(root.fen ?? undefined)
-  const startFen = root.fen
-
-  function moveNumber(fen) {
-    // fullmove number from FEN field 6, and side to move from field 2
-    const parts = fen.split(' ')
-    const num = parseInt(parts[5])
-    const side = parts[1]
-    return { num, side }
+  function makeHeaders(eventName) {
+    return [
+      `[Event "${eventName}"]`,
+      '[Site "FireChess"]',
+      `[Date "${date}"]`,
+      '[White "?"]',
+      '[Black "?"]',
+      '[Result "*"]',
+    ].join('\n')
   }
 
-  function serializeChildren(children, parentFen, firstMove) {
+  function moveNumber(fen) {
+    const parts = fen.split(' ')
+    return { num: parseInt(parts[5]), side: parts[1] }
+  }
+
+  /**
+   * Serialize children, optionally skipping variation branches that are
+   * chapter roots (they get their own PGN game). Pass skipChapterRoots=true
+   * when exporting a specific chapter to keep each game clean.
+   */
+  function serializeChildren(children, parentFen, firstMove, skipChapterRoots = false) {
     if (!children?.length) return ''
-    const [main, ...variants] = children
+    const [main, ...allVariants] = children
+    // When exporting chapters, exclude sibling variations that start their own chapter
+    const variants = skipChapterRoots ? allVariants.filter(v => !v.chapterName) : allVariants
     let out = ''
 
-    // Main line move
     const { num, side } = moveNumber(parentFen)
     if (firstMove || side === 'w') out += `${num}${side === 'w' ? '.' : '...'} `
-    out += main.san
-    if (main.annotation) out += ` { ${main.annotation.replace(/[{}]/g, '')} } `
+    out += main.san + ' '
+    if (main.annotation) out += `{ ${main.annotation.replace(/[{}]/g, '')} } `
 
-    // Variations (siblings)
     for (const v of variants) {
       const { num: vn, side: vs } = moveNumber(parentFen)
-      let vout = `( ${vn}${vs === 'w' ? '.' : '...'} ${v.san}`
-      if (v.annotation) vout += ` { ${v.annotation.replace(/[{}]/g, '')} } `
-      vout += serializeChildren(v.children, v.fen, false)
+      let vout = `( ${vn}${vs === 'w' ? '.' : '...'} ${v.san} `
+      if (v.annotation) vout += `{ ${v.annotation.replace(/[{}]/g, '')} } `
+      vout += serializeChildren(v.children, v.fen, false, skipChapterRoots)
       vout += ') '
       out += ' ' + vout
     }
 
-    // Continue main line
-    out += serializeChildren(main.children, main.fen, false)
+    out += serializeChildren(main.children, main.fen, false, skipChapterRoots)
     return out
   }
 
-  const moves = serializeChildren(root.children, startFen, true).trim()
-  return `${headers}\n\n${moves} *`
+  // Collect chapters: nodes with chapterName, with their path from root
+  const chapters = []
+  function collectChapters(node, pathNodes) {
+    if (node.chapterName) chapters.push({ name: node.chapterName, pathNodes, node })
+    for (const child of node.children ?? []) {
+      collectChapters(child, [...pathNodes, node])
+    }
+  }
+  collectChapters(root, [])
+
+  // No chapters → single PGN game with full tree
+  if (!chapters.length) {
+    const moves = serializeChildren(root.children, root.fen, true, false).trim()
+    return `${makeHeaders(repName)}\n\n${moves} *`
+  }
+
+  // One PGN game per chapter.
+  // Each game: linear prefix from root to the chapter node, then the chapter
+  // subtree with other-chapter branches omitted (they appear in their own games).
+  return chapters.map(({ name, pathNodes, node }) => {
+    // Prefix: linear path from root's first child down to just before the chapter node
+    let prefixMoves = ''
+    for (let i = 1; i < pathNodes.length; i++) {
+      const parentFen = pathNodes[i - 1].fen
+      const { num, side } = moveNumber(parentFen)
+      if (i === 1 || side === 'w') prefixMoves += `${num}${side === 'w' ? '.' : '...'} `
+      prefixMoves += pathNodes[i].san + ' '
+      if (pathNodes[i].annotation) prefixMoves += `{ ${pathNodes[i].annotation.replace(/[{}]/g, '')} } `
+    }
+
+    // Chapter node itself
+    const parentFen = pathNodes[pathNodes.length - 1]?.fen ?? root.fen
+    const { num, side } = moveNumber(parentFen)
+    const isFirst = pathNodes.length <= 1
+    let chapterMoves = ''
+    if (isFirst || side === 'w') chapterMoves += `${num}${side === 'w' ? '.' : '...'} `
+    chapterMoves += node.san + ' '
+    if (node.annotation) chapterMoves += `{ ${node.annotation.replace(/[{}]/g, '')} } `
+    // Serialize chapter subtree, skipping child branches that are their own chapters
+    chapterMoves += serializeChildren(node.children, node.fen, false, true)
+
+    const moves = (prefixMoves + chapterMoves).trim()
+    return `${makeHeaders(name)}\n\n${moves} *`
+  }).join('\n\n')
 }
