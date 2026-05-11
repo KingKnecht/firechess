@@ -6,6 +6,9 @@ const EXPLORER_URL = 'https://explorer.lichess.ovh/lichess'
 // All rating buckets supported by the Lichess opening explorer
 const ALL_BUCKETS = [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500]
 
+// Buckets for "best response" data shown when it's the user's turn
+export const MASTER_BUCKETS = [2000, 2200, 2500]
+
 // Slider constants (exported so the component can bind them)
 export const EXPLORER_RMIN  = 800
 export const EXPLORER_RMAX  = 2800
@@ -70,25 +73,28 @@ async function _fetchRaw(fen, buckets) {
 }
 
 // ── Current-position reactive state ──────────────────────────────────────────
-export const explorerData    = ref(null)
-export const explorerLoading = ref(false)
-export const explorerError   = ref(null)   // null | 'auth' | 'network'
+export const explorerData      = ref(null)
+export const explorerLoading   = ref(false)
+export const explorerError     = ref(null)   // null | 'auth' | 'network'
+export const explorerIsMasters = ref(false)  // true when showing master-level data
 
 let _debounceTimer = null
 
-export function fetchExplorer(fen, { debounce = true } = {}) {
+export function fetchExplorer(fen, { debounce = true, buckets = null } = {}) {
   clearTimeout(_debounceTimer)
-  _debounceTimer = setTimeout(() => _doFetch(fen), debounce ? 450 : 0)
+  _debounceTimer = setTimeout(() => _doFetch(fen, buckets), debounce ? 450 : 0)
 }
 
-async function _doFetch(fen) {
+async function _doFetch(fen, bucketsOverride) {
   if (!lichessToken.value) {
     explorerData.value = null
     explorerError.value = null
+    explorerIsMasters.value = false
     return
   }
-  const buckets = bucketsForRange(explorerRangeMin.value, explorerRangeMax.value)
+  const buckets = bucketsOverride ?? bucketsForRange(explorerRangeMin.value, explorerRangeMax.value)
   const key = cacheKey(fen, buckets)
+  explorerIsMasters.value = !!bucketsOverride
 
   if (_cache.has(key)) {
     explorerData.value = _cache.get(key)
@@ -135,6 +141,7 @@ export function clearExplorerCache() {
   _cache.clear()
   explorerData.value = null
   explorerError.value = null
+  explorerIsMasters.value = false
 }
 
 // Prefetch single position (used by trainer to warm cache for next opponent move)

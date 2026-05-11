@@ -162,8 +162,14 @@
           <div v-else-if="explorerError" class="explorer-error">⚠️ Could not load move stats.</div>
           <template v-else-if="explorerData && explorerFreqMap.size">
             <div class="explorer-header">
-              👥 Lichess games
-              <span class="explorer-elo-badge">{{ currentEloLabel }}</span>
+              <template v-if="explorerIsMasters">
+                🏆 Masters (2000+)
+                <span class="explorer-elo-badge masters">best responses</span>
+              </template>
+              <template v-else>
+                👥 Lichess games
+                <span class="explorer-elo-badge">{{ currentEloLabel }}</span>
+              </template>
             </div>
             <div
               v-for="[san, f] in [...explorerFreqMap.entries()].sort((a,b) => b[1].total - a[1].total)"
@@ -182,7 +188,7 @@
           <div v-else-if="explorerData" class="explorer-empty">No games found for this position.</div>
         </div>
         <div v-else class="explorer-connect-hint">
-          🔗 <em>Connect Lichess in Settings</em> to see move frequency by opponents.
+          🔗 <em>Connect Lichess in Settings</em> to see opponent move frequency and master responses.
         </div>
       </div>
 
@@ -431,10 +437,10 @@ import RepertoireTree from './RepertoireTree.vue'
 import ChessBoard from './ChessBoard.vue'
 import { lichessToken, lichessUser } from '../composables/useLichessAuth.js'
 import {
-  explorerData, explorerLoading, explorerError,
+  explorerData, explorerLoading, explorerError, explorerIsMasters,
   explorerRangeMin, explorerRangeMax, EXPLORER_RMIN, EXPLORER_RMAX, EXPLORER_RSTEP,
   fetchExplorer, prefetchExplorer, getCachedExplorer, movesFreqMap, eloLabel,
-  bucketsForRange,
+  bucketsForRange, MASTER_BUCKETS,
 } from '../composables/useLichessExplorer.js'
 
 const emit = defineEmits(['back'])
@@ -841,24 +847,31 @@ const dualRangeTrackStyle = computed(() => {
   return { '--range-min-pct': `${minPct}%`, '--range-max-pct': `${maxPct}%` }
 })
 
+// Returns master buckets when it's the user's turn, null (ELO range) for opponent's turn
+function editorExplorerBuckets() {
+  const turn = editorChess.value?.turn()
+  const userColor = currentRep.value?.color
+  return (turn && userColor && turn === userColor) ? MASTER_BUCKETS : null
+}
+
 let _rangeDebounce = null
 function onRangeChanged() {
   clearTimeout(_rangeDebounce)
   _rangeDebounce = setTimeout(() => {
     if (lichessToken.value && subView.value === 'edit') {
-      fetchExplorer(editorChess.value.fen(), { debounce: false })
+      fetchExplorer(editorChess.value.fen(), { debounce: false, buckets: editorExplorerBuckets() })
     }
   }, 400)
 }
 
 // Auto-fetch explorer whenever the editor position changes
 watch(editorChess, () => {
-  if (lichessToken.value) fetchExplorer(editorChess.value.fen())
+  if (lichessToken.value) fetchExplorer(editorChess.value.fen(), { buckets: editorExplorerBuckets() })
 }, { flush: 'post' })
 
 // Refetch when user connects/disconnects
 watch(lichessToken, (token) => {
-  if (token) fetchExplorer(editorChess.value.fen(), { debounce: false })
+  if (token) fetchExplorer(editorChess.value.fen(), { debounce: false, buckets: editorExplorerBuckets() })
   else explorerData.value = null
 })
 
@@ -2121,6 +2134,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-size: 0.66rem;
   color: #b58863;
   font-weight: 600;
+}
+.explorer-elo-badge.masters {
+  background: #2a3a2a;
+  border-color: #4a8a4a;
+  color: #7bc97b;
 }
 .explorer-move-row {
   display: flex;
