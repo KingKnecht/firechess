@@ -1161,6 +1161,20 @@ function opponentMove() {
     triggerRef(trainerChess)
     trainerCurrentNode.value = child
     hintRequested.value = false
+
+    // If the opponent's move is the last move in the line, complete it
+    if (!child.children?.length) {
+      trainStats.value.lines++
+      if (currentLineClean.value) streak.value++
+      else streak.value = 0
+      currentLineClean.value = true
+      setTimeout(() => {
+        showFeedback('done')
+        setTimeout(() => { trainFeedback.value = ''; nextLineOrRestart() }, 1500)
+      }, 500)
+      return
+    }
+
     // After opponent moves, check if the user now has multiple response options → show picker
     checkUserVariantPick(child)
   } catch (e) {
