@@ -117,6 +117,7 @@ import { useEvaluation } from './composables/useEvaluation.js'
 import { useBotGame } from './composables/useBotGame.js'
 import { useChessClock } from './composables/useChessClock.js'
 import { showAllSquareNames, showMoveFlash, moveFlashContent } from './composables/useSettings.js'
+import { handleLichessCallback } from './composables/useLichessAuth.js'
 
 const {
   fen,
@@ -420,8 +421,18 @@ function startOnlineSync(id) {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
   const params = new URLSearchParams(location.search)
+
+  // Handle Lichess OAuth callback
+  const code = params.get('code')
+  if (code) {
+    await handleLichessCallback(code)
+    // Clean up URL so code isn't visible / re-processed
+    const clean = window.location.pathname
+    window.history.replaceState({}, '', clean)
+  }
+
   const roomParam = params.get('room')
   if (roomParam) {
     mode.value = 'online'

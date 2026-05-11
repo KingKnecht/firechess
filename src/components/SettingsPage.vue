@@ -44,12 +44,51 @@
         </label>
       </section>
 
+      <!-- Lichess section -->
+      <section class="settings-section">
+        <div class="section-title">Lichess</div>
+
+        <div class="settings-row" style="cursor: default;">
+          <div class="row-text">
+            <span class="row-label">Lichess Account</span>
+            <span class="row-desc">
+              Connect your Lichess account to enable opening explorer stats and other features.
+            </span>
+          </div>
+
+          <div v-if="lichessUser" class="lichess-connected">
+            <a
+              :href="`https://lichess.org/@/${lichessUser.username}`"
+              target="_blank"
+              rel="noopener"
+              class="lichess-username"
+            >
+              <img src="https://lichess.org/favicon.ico" class="lichess-icon" alt="" />
+              {{ lichessUser.username }}
+            </a>
+            <button class="btn small danger" @click="disconnectLichess">Disconnect</button>
+          </div>
+
+          <button
+            v-else
+            class="btn lichess-connect-btn"
+            :disabled="lichessAuthLoading"
+            @click="connectLichess"
+          >
+            <img src="https://lichess.org/favicon.ico" class="lichess-icon" alt="" />
+            {{ lichessAuthLoading ? 'Connecting…' : 'Connect to Lichess' }}
+          </button>
+        </div>
+
+      </section>
+
     </main>
   </div>
 </template>
 
 <script setup>
 import { showAllSquareNames, showMoveFlash, moveFlashContent } from '../composables/useSettings.js'
+import { lichessUser, lichessAuthLoading, connectLichess, disconnectLichess } from '../composables/useLichessAuth.js'
 defineEmits(['back'])
 </script>
 
@@ -191,4 +230,53 @@ defineEmits(['back'])
 .segmented button.active { background: #b58863; color: #fff; }
 .segmented button:not(.active):hover { background: var(--seg-hover-bg); color: var(--seg-hover-text); }
 .segmented.faded { opacity: 0.4; pointer-events: none; }
+
+/* Lichess connect */
+.lichess-connect-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  background: #3d3d3d;
+  border: 1px solid #666;
+  border-radius: 8px;
+  color: #f0d9b5;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.lichess-connect-btn:hover:not(:disabled) { background: #555; }
+.lichess-connect-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.lichess-connected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.lichess-username {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #b58863;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.lichess-username:hover { text-decoration: underline; }
+.lichess-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+}
+.btn.small { padding: 5px 12px; font-size: 0.8rem; }
+.btn.danger {
+  background: #7f1d1d;
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+.btn.danger:hover { background: #991b1b; }
 </style>

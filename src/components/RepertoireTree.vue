@@ -17,6 +17,7 @@
           @click.stop="$emit('select', node)"
         >
           {{ node.san }}
+          <span v-if="node.chapterName" class="chapter-tag" :title="node.chapterName">📖 {{ node.chapterName }}</span>
           <span v-if="node.annotation" class="ann-icon" :title="node.annotation">●</span>
           <button class="tok-del" @click.stop="$emit('delete', node.id)" title="Remove">✕</button>
         </span>
@@ -169,6 +170,22 @@ const collapsed = ref(props.isVariation)
   font-size: 0.55rem;
   color: #f0a030;
   vertical-align: super;
+}
+
+.chapter-tag {
+  font-size: 0.68rem;
+  background: rgba(181,136,99,0.2);
+  border: 1px solid rgba(181,136,99,0.4);
+  color: #d4a574;
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 2px;
+  white-space: nowrap;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .tok-del {

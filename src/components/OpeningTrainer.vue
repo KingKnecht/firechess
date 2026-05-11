@@ -14,6 +14,38 @@
           <button class="btn primary" @click="showCreateForm = true">+ New Repertoire</button>
         </div>
 
+        <!-- ELO range slider -->
+        <div class="elo-range-section">
+          <div class="elo-range-header">
+            <span class="elo-range-title">👥 Opponent ELO Range</span>
+            <span class="elo-range-value">{{ explorerRangeMin }} – {{ explorerRangeMax }}</span>
+            <span v-if="!lichessToken" class="elo-range-hint-inline">
+              — <em><a @click.prevent="handleBack" href="#">Connect Lichess in Settings</a> to load frequency data</em>
+            </span>
+          </div>
+          <div class="dual-range-wrap" :style="dualRangeTrackStyle">
+            <input
+              class="range-input"
+              type="range"
+              :min="EXPLORER_RMIN" :max="EXPLORER_RMAX" :step="EXPLORER_RSTEP"
+              v-model.number="explorerRangeMin"
+              :style="{ zIndex: explorerRangeMin >= explorerRangeMax - EXPLORER_RSTEP ? 3 : 1 }"
+              @input="onRangeMinInput"
+            />
+            <input
+              class="range-input"
+              type="range"
+              :min="EXPLORER_RMIN" :max="EXPLORER_RMAX" :step="EXPLORER_RSTEP"
+              v-model.number="explorerRangeMax"
+              :style="{ zIndex: explorerRangeMax <= explorerRangeMin + EXPLORER_RSTEP ? 3 : 2 }"
+              @input="onRangeMaxInput"
+            />
+          </div>
+          <div class="elo-range-buckets">
+            Lichess data buckets: <strong>{{ currentBucketsLabel }}</strong>
+          </div>
+        </div>
+
         <!-- Create form -->
         <div v-if="showCreateForm" class="create-form">
           <input v-model="newName" class="text-input" placeholder="Repertoire name…" @keyup.enter="createRepertoire" />
@@ -122,6 +154,36 @@
             </div>
           </template>
         </div>
+
+        <!-- Explorer frequency panel -->
+        <div v-if="lichessToken" class="explorer-panel">
+          <div v-if="explorerLoading" class="explorer-loading">⏳ Loading move stats…</div>
+          <div v-else-if="explorerError === 'auth'" class="explorer-error">🔑 Lichess token expired — reconnect in Settings.</div>
+          <div v-else-if="explorerError" class="explorer-error">⚠️ Could not load move stats.</div>
+          <template v-else-if="explorerData && explorerFreqMap.size">
+            <div class="explorer-header">
+              👥 Lichess games
+              <span class="explorer-elo-badge">{{ currentEloLabel }}</span>
+            </div>
+            <div
+              v-for="[san, f] in [...explorerFreqMap.entries()].sort((a,b) => b[1].total - a[1].total)"
+              :key="san"
+              class="explorer-move-row"
+              @click="explorerPlayMove(san)"
+            >
+              <span class="explorer-san">{{ san }}</span>
+              <div class="explorer-bar-wrap">
+                <div class="explorer-bar" :style="{ width: f.pct + '%' }" />
+              </div>
+              <span class="explorer-pct">{{ f.pct }}%</span>
+              <span class="explorer-total">{{ f.total.toLocaleString() }}</span>
+            </div>
+          </template>
+          <div v-else-if="explorerData" class="explorer-empty">No games found for this position.</div>
+        </div>
+        <div v-else class="explorer-connect-hint">
+          🔗 <em>Connect Lichess in Settings</em> to see move frequency by opponents.
+        </div>
       </div>
 
       <!-- Side panel -->
@@ -142,6 +204,11 @@
 
         <!-- Tree tab -->
         <div v-if="editorTab === 'tree'" class="tree-tab">
+          <div class="tree-toolbar">
+            <button class="btn tiny" @click="copyPgn" :disabled="!currentRep?.root?.children?.length" title="Copy PGN to clipboard">📋 Copy PGN</button>
+            <button class="btn tiny" @click="downloadPgn" :disabled="!currentRep?.root?.children?.length" title="Download as .pgn file">⬇ Download</button>
+            <span v-if="copyMsg" class="copy-msg">{{ copyMsg }}</span>
+          </div>
           <div v-if="!currentRep?.root?.children?.length" class="tree-empty">
             Make moves on the board to build your repertoire.
           </div>
@@ -156,7 +223,7 @@
             />
           </div>
 
-          <!-- Annotation -->
+          <!-- Annotation + chapter name for selected node -->
           <div v-if="selectedNodeId && selectedNodeId !== currentRep?.root?.id" class="annotation-box">
             <div class="annotation-label">Annotation for <strong>{{ selectedNodeSan }}</strong></div>
             <textarea
@@ -166,6 +233,48 @@
               rows="3"
               @input="saveAnnotation"
             />
+            <div class="chapter-name-row">
+              <span class="annotation-label">📖 Chapter name</span>
+              <div class="chapter-name-input-wrap">
+                <input
+                  v-model="chapterNameDraft"
+                  class="text-input chapter-name-input"
+                  placeholder="Name this line as a chapter…"
+                  @input="saveChapterName"
+                />
+                <button
+                  v-if="chapterNameDraft"
+                  class="chapter-name-clear"
+                  @click="chapterNameDraft = ''; saveChapterName()"
+                  title="Remove chapter name"
+                >✕</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Opponent line manager — shown at opponent junctions with 2+ children -->
+          <div v-if="isOpponentJunction" class="opp-line-manager">
+            <div class="opp-line-header">
+              🎯 Training lines
+              <span class="opp-line-count">{{ activeLineCount(editorCurrentNode.id, editorCurrentNode.children) }}</span>
+            </div>
+            <div
+              v-for="child in editorCurrentNode.children"
+              :key="child.id"
+              class="opp-line-row"
+              :class="{ inactive: !isChildActive(editorCurrentNode.id, child.id) }"
+              @click="toggleOpponentLine(editorCurrentNode.id, child, editorCurrentNode.children)"
+            >
+              <span class="opp-line-toggle">{{ isChildActive(editorCurrentNode.id, child.id) ? '✅' : '⬜' }}</span>
+              <span class="opp-line-san">{{ child.san }}</span>
+              <template v-if="childFreq(child.san)">
+                <div class="opp-line-bar-wrap">
+                  <div class="opp-line-bar" :style="{ width: childFreq(child.san).pct + '%' }" />
+                </div>
+                <span class="opp-line-freq">1 in {{ Math.round(100 / Math.max(1, childFreq(child.san).pct)) }}</span>
+              </template>
+              <span v-else-if="lichessToken" class="opp-line-no-data">—</span>
+            </div>
           </div>
         </div>
 
@@ -248,6 +357,11 @@
           <button class="btn small" style="font-size:0.72rem; padding:2px 7px; margin-left:8px;" @click="trainMode = 'normal'">Normal</button>
         </div>
 
+        <!-- Lichess frequency mode banner -->
+        <div v-if="lichessToken" class="freq-mode-row">
+          <span class="freq-mode-label">👥 Opponents filtered by ELO range ({{ explorerRangeMin }}–{{ explorerRangeMax }})</span>
+        </div>
+
         <div class="trainer-rep-info">
           <span class="rep-name">{{ currentRep?.name }}</span>
           <span :class="['color-badge', currentRep?.color === 'w' ? 'white' : 'black']">
@@ -268,14 +382,15 @@
             <span class="stat-num">{{ trainStats.lines }}</span>
             <span class="stat-label">Lines</span>
           </div>
-          <div class="stat" v-if="streak >= 3">
-            <span class="stat-num streak-num">{{ streak }}🔥</span>
-            <span class="stat-label">Streak</span>
-          </div>
           <div class="stat" v-if="weakPositionCount > 0">
             <span class="stat-num weak-num">{{ weakPositionCount }}</span>
             <span class="stat-label">Weak</span>
           </div>
+        </div>
+
+        <div v-if="streak >= 3" class="streak-row">
+          <span class="streak-fire">🔥</span>
+          <span class="streak-count">{{ streak }} in a row!</span>
         </div>
 
         <div class="train-hint">
@@ -311,13 +426,20 @@
 import { ref, shallowRef, triggerRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Chess } from 'chess.js'
 import { useRepertoire, countNodes, findNode, getRepLines } from '../composables/useRepertoire.js'
-import { parsePgnToTree, parsePgnGames } from '../utils/pgnVariantParser.js'
+import { parsePgnToTree, parsePgnGames, treeToPgn } from '../utils/pgnVariantParser.js'
 import RepertoireTree from './RepertoireTree.vue'
 import ChessBoard from './ChessBoard.vue'
+import { lichessToken, lichessUser } from '../composables/useLichessAuth.js'
+import {
+  explorerData, explorerLoading, explorerError,
+  explorerRangeMin, explorerRangeMax, EXPLORER_RMIN, EXPLORER_RMAX, EXPLORER_RSTEP,
+  fetchExplorer, prefetchExplorer, getCachedExplorer, movesFreqMap, eloLabel,
+  bucketsForRange,
+} from '../composables/useLichessExplorer.js'
 
 const emit = defineEmits(['back'])
 
-const { repertoires, addRepertoire, deleteRepertoire, addMove, removeNode, setAnnotation, importTree, importTreeWithChapters, setPreferred } = useRepertoire()
+const { repertoires, addRepertoire, deleteRepertoire, addMove, removeNode, setAnnotation, setChapterName, importTree, importTreeWithChapters, setPreferred } = useRepertoire()
 
 // ── Shared state ────────────────────────────────────────────────────────────
 const subView = ref('list')
@@ -362,6 +484,7 @@ function openTraining(rep, mode = 'normal', lineNode = null) {
   knownNodeIds.value = saved.knownNodeIds
   wrongCounts.value = saved.wrongCounts
   preferredMoves.value = saved.preferredMoves
+  activeOpponentLines.value = saved.activeOpponentLines
   trainMode.value = mode
   trainingLineNode.value = lineNode
   variantPickerChoices.value = null
@@ -387,10 +510,42 @@ watch(selectedNodeId, (id) => {
   })
 })
 const annotationDraft = ref('')
+const chapterNameDraft = ref('')
 const importPgn = ref('')
 const importMsg = ref('')
 const importMsgType = ref('ok')
 const pgndragOver = ref(false)
+const copyMsg = ref('')
+let _copyMsgTimer = null
+
+function getExportPgn() {
+  return treeToPgn(currentRep.value.root, currentRep.value.name ?? '')
+}
+
+function copyPgn() {
+  if (!currentRep.value?.root?.children?.length) return
+  navigator.clipboard.writeText(getExportPgn()).then(() => {
+    clearTimeout(_copyMsgTimer)
+    copyMsg.value = '✓ Copied!'
+    _copyMsgTimer = setTimeout(() => { copyMsg.value = '' }, 2000)
+  }).catch(() => {
+    copyMsg.value = '✗ Failed'
+    _copyMsgTimer = setTimeout(() => { copyMsg.value = '' }, 2000)
+  })
+}
+
+function downloadPgn() {
+  if (!currentRep.value?.root?.children?.length) return
+  const pgn = getExportPgn()
+  const name = (currentRep.value.name ?? 'repertoire').replace(/[^a-z0-9]/gi, '_').toLowerCase()
+  const blob = new Blob([pgn], { type: 'application/x-chess-pgn' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name}.pgn`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 function onPgnFileDrop(event) {
   pgndragOver.value = false
@@ -434,6 +589,7 @@ function editorReset() {
   editorPath.value = []
   selectedNodeId.value = currentRep.value?.root?.id ?? null
   annotationDraft.value = ''
+  chapterNameDraft.value = ''
   editorFlipped.value = currentRep.value?.color === 'b'
 }
 
@@ -443,6 +599,7 @@ function editorGoRoot() {
   editorPath.value = []
   selectedNodeId.value = currentRep.value?.root?.id ?? null
   annotationDraft.value = ''
+  chapterNameDraft.value = ''
 }
 
 function editorGoBack() {
@@ -456,6 +613,7 @@ function editorGoBack() {
   selectedNodeId.value = parentId
   const found = findNode(currentRep.value.root, parentId)
   annotationDraft.value = found ? found[0].annotation : ''
+  chapterNameDraft.value = found ? (found[0].chapterName ?? '') : ''
   editorSelected.value = null
 }
 
@@ -482,6 +640,7 @@ function onEditorSquareClick(sq) {
           editorPath.value.push(node.id)
           selectedNodeId.value = node.id
           annotationDraft.value = node.annotation
+          chapterNameDraft.value = node.chapterName ?? ''
         }
         editorSelected.value = null
         return
@@ -528,6 +687,7 @@ function onTreeSelect(node) {
   editorPath.value = ids
   selectedNodeId.value = node.id
   annotationDraft.value = node.annotation ?? ''
+  chapterNameDraft.value = node.chapterName ?? ''
   editorSelected.value = null
 }
 
@@ -542,6 +702,11 @@ function onTreeDelete(nodeId) {
 function saveAnnotation() {
   if (!currentRep.value || !selectedNodeId.value) return
   setAnnotation(currentRep.value.id, selectedNodeId.value, annotationDraft.value)
+}
+
+function saveChapterName() {
+  if (!currentRep.value || !selectedNodeId.value) return
+  setChapterName(currentRep.value.id, selectedNodeId.value, chapterNameDraft.value)
 }
 
 function doImport() {
@@ -576,6 +741,7 @@ const trainStats = ref({ correct: 0, wrong: 0, lines: 0 })
 const hintRequested = ref(false)
 const trainMode = ref('normal') // 'normal' | 'weaknesses'
 const streak = ref(0)
+const currentLineClean = ref(true) // false if any mistake was made in the current line
 
 // ── Variant picker (opponent branching) ───────────────────────────────────────
 // When opponent has multiple choices and no stored preference, show picker.
@@ -647,6 +813,133 @@ async function fetchEval() {
   evalLoading.value = false
 }
 
+// ── Lichess opening explorer ──────────────────────────────────────────────────
+const explorerFreqMap = computed(() => movesFreqMap(explorerData.value))
+const currentEloLabel = computed(() => eloLabel())
+const currentBucketsLabel = computed(() => {
+  const b = bucketsForRange(explorerRangeMin.value, explorerRangeMax.value)
+  return b.join(', ')
+})
+
+// Dual range slider helpers
+function onRangeMinInput(e) {
+  const v = parseInt(e.target.value)
+  if (v >= explorerRangeMax.value) explorerRangeMin.value = explorerRangeMax.value - EXPLORER_RSTEP
+  else explorerRangeMin.value = v
+  onRangeChanged()
+}
+function onRangeMaxInput(e) {
+  const v = parseInt(e.target.value)
+  if (v <= explorerRangeMin.value) explorerRangeMax.value = explorerRangeMin.value + EXPLORER_RSTEP
+  else explorerRangeMax.value = v
+  onRangeChanged()
+}
+const dualRangeTrackStyle = computed(() => {
+  const span = EXPLORER_RMAX - EXPLORER_RMIN
+  const minPct = ((explorerRangeMin.value - EXPLORER_RMIN) / span * 100).toFixed(1)
+  const maxPct = ((explorerRangeMax.value - EXPLORER_RMIN) / span * 100).toFixed(1)
+  return { '--range-min-pct': `${minPct}%`, '--range-max-pct': `${maxPct}%` }
+})
+
+let _rangeDebounce = null
+function onRangeChanged() {
+  clearTimeout(_rangeDebounce)
+  _rangeDebounce = setTimeout(() => {
+    if (lichessToken.value && subView.value === 'edit') {
+      fetchExplorer(editorChess.value.fen(), { debounce: false })
+    }
+  }, 400)
+}
+
+// Auto-fetch explorer whenever the editor position changes
+watch(editorChess, () => {
+  if (lichessToken.value) fetchExplorer(editorChess.value.fen())
+}, { flush: 'post' })
+
+// Refetch when user connects/disconnects
+watch(lichessToken, (token) => {
+  if (token) fetchExplorer(editorChess.value.fen(), { debounce: false })
+  else explorerData.value = null
+})
+
+function explorerPlayMove(san) {
+  if (!editorChess.value || !currentRep.value) return
+  try {
+    const move = editorChess.value.move(san)
+    if (!move) return
+    triggerRef(editorChess)
+    const parentId = selectedNodeId.value ?? currentRep.value.root.id
+    const node = addMove(currentRep.value.id, parentId, {
+      san: move.san, from: move.from, to: move.to, promotion: move.promotion ?? null,
+      fen: editorChess.value.fen(),
+    })
+    if (node) {
+      editorPath.value.push(node.id)
+      selectedNodeId.value = node.id
+      annotationDraft.value = node.annotation
+      chapterNameDraft.value = node.chapterName ?? ''
+    }
+    editorSelected.value = null
+  } catch {}
+}
+
+// ── Opponent line manager ─────────────────────────────────────────────────────
+
+// The node currently selected/visible in the editor
+const editorCurrentNode = computed(() => {
+  if (!currentRep.value) return null
+  const id = selectedNodeId.value ?? currentRep.value.root.id
+  const found = findNode(currentRep.value.root, id)
+  return found ? found[0] : currentRep.value.root
+})
+
+// True when the current position is the opponent's turn and has multiple children
+const isOpponentJunction = computed(() => {
+  const node = editorCurrentNode.value
+  if (!node?.children?.length) return false
+  const turn = editorChess.value.turn()   // whose turn it is at this position
+  const userColor = currentRep.value?.color  // 'w' or 'b'
+  const opponentTurn = userColor === 'w' ? 'b' : 'w'
+  return turn === opponentTurn && node.children.length > 1
+})
+
+// Returns a freq entry (or null) for a child SAN at the current position
+function childFreq(san) {
+  return explorerFreqMap.value.get(san) ?? null
+}
+
+// Is a given child currently active for training at this junction?
+function isChildActive(parentNodeId, childId) {
+  const set = activeOpponentLines.value.get(parentNodeId)
+  if (!set) return true  // default: all active
+  return set.has(childId)
+}
+
+// Toggle a child on/off at the current junction
+function toggleOpponentLine(parentNodeId, child, allChildren) {
+  const map = new Map(activeOpponentLines.value)
+  let set = map.has(parentNodeId) ? new Set(map.get(parentNodeId)) : new Set(allChildren.map(c => c.id))
+  if (set.has(child.id)) {
+    // Only deactivate if at least one other child remains active
+    if (set.size > 1) set.delete(child.id)
+  } else {
+    set.add(child.id)
+  }
+  // If all children are active, remove the entry entirely (keeps storage clean)
+  if (set.size === allChildren.length) map.delete(parentNodeId)
+  else map.set(parentNodeId, set)
+  activeOpponentLines.value = map
+  // Persist immediately (re-use existing save, but we need to load the rep stats first)
+  if (currentRep.value) saveRepTrainStats(currentRep.value.id)
+}
+
+// Active count label for a junction
+function activeLineCount(parentNodeId, allChildren) {
+  const set = activeOpponentLines.value.get(parentNodeId)
+  const count = set ? set.size : allChildren.length
+  return `${count} / ${allChildren.length} lines active`
+}
+
 // ── All-rep training data for card display ────────────────────────────────────
 const allTrainData = ref({})
 
@@ -682,21 +975,28 @@ function loadRepTrainStats(repId) {
   try {
     const all = JSON.parse(localStorage.getItem(TRAIN_KEY) ?? '{}')
     const s = all[repId] ?? {}
+    // activeOpponentLines: { nodeId: childId[] } → Map<nodeId, Set<childId>>
+    const aol = s.activeOpponentLines ?? {}
     return {
       knownNodeIds: new Set(s.knownNodeIds ?? []),
       wrongCounts: new Map(Object.entries(s.wrongCounts ?? {})),
       preferredMoves: new Map(Object.entries(s.preferredMoves ?? {})),
+      activeOpponentLines: new Map(Object.entries(aol).map(([k, v]) => [k, new Set(v)])),
     }
-  } catch { return { knownNodeIds: new Set(), wrongCounts: new Map(), preferredMoves: new Map() } }
+  } catch { return { knownNodeIds: new Set(), wrongCounts: new Map(), preferredMoves: new Map(), activeOpponentLines: new Map() } }
 }
 
 function saveRepTrainStats(repId) {
   try {
     const all = JSON.parse(localStorage.getItem(TRAIN_KEY) ?? '{}')
+    // Serialise activeOpponentLines: Map<nodeId, Set<childId>> → { nodeId: childId[] }
+    const aolObj = {}
+    for (const [k, v] of activeOpponentLines.value) aolObj[k] = [...v]
     all[repId] = {
       knownNodeIds: [...knownNodeIds.value],
       wrongCounts: Object.fromEntries(wrongCounts.value),
       preferredMoves: Object.fromEntries(preferredMoves.value),
+      activeOpponentLines: aolObj,
       lastPracticed: Date.now(),
     }
     localStorage.setItem(TRAIN_KEY, JSON.stringify(all))
@@ -704,8 +1004,9 @@ function saveRepTrainStats(repId) {
   } catch {}
 }
 
-const knownNodeIds = ref(new Set())
-const wrongCounts  = ref(new Map())
+const knownNodeIds       = ref(new Set())
+const wrongCounts        = ref(new Map())
+const activeOpponentLines = ref(new Map())  // Map<parentNodeId, Set<childId>>
 
 const weakPositionCount = computed(() => {
   if (!currentRep.value) return 0
@@ -789,6 +1090,7 @@ function restartTraining() {
   trainStats.value = { correct: 0, wrong: 0, lines: 0 }
   hintRequested.value = false
   streak.value = 0
+  currentLineClean.value = true
   variantPickerChoices.value = null
   if (currentRep.value?.color === 'b') {
     nextTick(() => opponentMove())
@@ -817,13 +1119,42 @@ function opponentMove() {
     const scoped = children.filter(c => trainingLineAllowedIds.value.has(c.id))
     if (scoped.length > 0) children = scoped
   }
+  // Respect user-configured active opponent lines (from editor line manager)
+  const activeSet = activeOpponentLines.value.get(node.id)
+  if (activeSet?.size) {
+    const scoped = children.filter(c => activeSet.has(c.id))
+    if (scoped.length > 0) children = scoped
+  }
   // In weakness mode, prefer paths that lead through weak positions
   if (trainMode.value === 'weaknesses') {
     const weakChildren = children.filter(c => hasWeakInSubtree(c))
     if (weakChildren.length > 0) children = weakChildren
   }
-  // Opponent always plays weighted random through all their lines
-  const weights = children.map(c => 1 + (wrongCounts.value.get(c.id) ?? 0) * 3)
+  // When connected to Lichess, additionally filter to moves found at the selected ELO range;
+  // fall back to current pool if no cached data or no matches at this range.
+  let weights
+  if (lichessToken.value) {
+    const fen = trainerChess.value.fen()
+    const cached = getCachedExplorer(fen)
+    if (cached?.moves?.length) {
+      const freqMap = movesFreqMap(cached)
+      // Only include moves that appear in the Lichess DB (freq > 0), otherwise fall back
+      const inRange = children.filter(c => (freqMap.get(c.san)?.total ?? 0) > 0)
+      const pool = inRange.length > 0 ? inRange : children
+      children = pool
+      weights = children.map(c => {
+        const f = freqMap.get(c.san)
+        const freqWeight = f ? Math.max(1, f.total) : 1
+        const wrongBoost = 1 + (wrongCounts.value.get(c.id) ?? 0) * 3
+        return freqWeight * wrongBoost
+      })
+    } else {
+      prefetchExplorer(fen)
+      weights = children.map(c => 1 + (wrongCounts.value.get(c.id) ?? 0) * 3)
+    }
+  } else {
+    weights = children.map(c => 1 + (wrongCounts.value.get(c.id) ?? 0) * 3)
+  }
   const child = weightedChoice(children, weights)
   try {
     trainerChess.value.move(child.san)
@@ -916,13 +1247,15 @@ function onTrainerSquareClick(sq) {
         markNodeKnown(trainerCurrentNode.value.id)
         hintRequested.value = false
         trainStats.value.correct++
-        streak.value++
         trainerCurrentNode.value = match
         showFeedback('correct')
 
         if (!match.children.length) {
           // Leaf node — line complete
           trainStats.value.lines++
+          if (currentLineClean.value) streak.value++
+          else streak.value = 0
+          currentLineClean.value = true // reset for next line
           setTimeout(() => {
             showFeedback('done')
             setTimeout(() => { trainFeedback.value = ''; nextLineOrRestart() }, 1500)
@@ -939,6 +1272,7 @@ function onTrainerSquareClick(sq) {
         recordWrong(trainerCurrentNode.value.id)
         trainStats.value.wrong++
         streak.value = 0
+        currentLineClean.value = false
         trainerChess.value.undo()
         triggerRef(trainerChess)
         showFeedback('wrong')
@@ -975,6 +1309,7 @@ function nextLineOrRestart() {
   trainerSelected.value = null
   trainerCurrentNode.value = currentRep.value.root
   hintRequested.value = false
+  currentLineClean.value = true
   if (currentRep.value.color === 'b') opponentMove()
 }
 
@@ -1122,6 +1457,105 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   gap: 12px;
 }
 .list-title { margin: 0; font-size: 1.3rem; font-weight: 700; }
+
+/* ── ELO range slider ── */
+.elo-range-section {
+  background: var(--bg-panel);
+  border: 1px solid rgba(181,136,99,0.3);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.elo-range-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+.elo-range-title { font-weight: 600; }
+.elo-range-value {
+  background: rgba(181,136,99,0.2);
+  border: 1px solid rgba(181,136,99,0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.elo-range-hint-inline { font-size: 0.82rem; color: var(--text-secondary); }
+.elo-range-hint-inline a { color: #b58863; cursor: pointer; }
+
+/* Dual range slider */
+.dual-range-wrap {
+  position: relative;
+  height: 28px;
+}
+.dual-range-wrap::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: var(--range-min-pct);
+  right: calc(100% - var(--range-max-pct));
+  height: 4px;
+  border-radius: 2px;
+  background: #b58863;
+  pointer-events: none;
+}
+.range-input {
+  position: absolute;
+  width: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  height: 4px;
+}
+.range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #b58863;
+  border: 2px solid #fff;
+  cursor: pointer;
+  pointer-events: all;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  transition: transform 0.1s;
+}
+.range-input::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.range-input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #b58863;
+  border: 2px solid #fff;
+  cursor: pointer;
+  pointer-events: all;
+}
+.range-input::-webkit-slider-runnable-track {
+  height: 4px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+}
+.elo-range-buckets { font-size: 0.78rem; color: var(--text-secondary); }
+
+/* Coverage badge on rep cards */
+.coverage-badge {
+  font-size: 0.78rem;
+  background: rgba(99,181,130,0.18);
+  border: 1px solid rgba(99,181,130,0.35);
+  color: #7ecfa2;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+.coverage-badge.loading { opacity: 0.5; }
+.coverage-total { opacity: 0.6; }
 
 .create-form {
   background: var(--bg-panel);
@@ -1281,6 +1715,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   gap: 0;
   min-height: 200px;
 }
+.tree-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.copy-msg {
+  font-size: 0.78rem;
+  color: #7ecfa2;
+  margin-left: 4px;
+}
 .tree-empty {
   padding: 20px 14px;
   font-size: 0.85rem;
@@ -1340,6 +1786,82 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   resize: vertical;
 }
 .annotation-input:focus { outline: none; border-color: #b58863; }
+
+.chapter-name-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.chapter-name-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.chapter-name-input {
+  flex: 1;
+  padding-right: 28px;
+}
+.chapter-name-clear {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0;
+  line-height: 1;
+}
+.chapter-name-clear:hover { color: var(--text-primary); }
+
+/* ── Opponent line manager ── */
+.opp-line-manager {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.opp-line-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+.opp-line-count {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  font-weight: 400;
+}
+.opp-line-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, opacity 0.12s;
+  font-size: 0.85rem;
+}
+.opp-line-row:hover { background: rgba(181,136,99,0.1); border-color: rgba(181,136,99,0.25); }
+.opp-line-row.inactive { opacity: 0.45; }
+.opp-line-toggle { font-size: 1rem; flex-shrink: 0; }
+.opp-line-san { font-weight: 700; min-width: 44px; font-family: monospace; }
+.opp-line-bar-wrap {
+  flex: 1;
+  height: 5px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.opp-line-bar { height: 100%; background: #b58863; border-radius: 3px; }
+.opp-line-freq { font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; min-width: 60px; text-align: right; }
+.opp-line-no-data { font-size: 0.75rem; color: var(--text-muted); margin-left: auto; }
 
 /* ── Import tab ── */
 .import-tab {
@@ -1497,6 +2019,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .stat-num { font-size: 1.5rem; font-weight: 700; color: #b58863; }
 .stat-num.weak-num { color: #f87171; }
 .stat-num.streak-num { color: #fb923c; }
+.streak-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.streak-fire { font-size: 1.5rem; }
+.streak-count { font-size: 1rem; font-weight: 700; color: #fb923c; }
 .stat-label { font-size: 0.7rem; color: var(--text-muted); }
 .train-hint { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
 .hint-btn { background: #3a2800; color: #fbbf24; border-color: #7a5a00; }
@@ -1548,6 +2079,130 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .eval-score { font-weight: 700; min-width: 44px; color: var(--primary, #6366f1); }
 .eval-moves { color: var(--text, #ddd); font-family: monospace; font-size: 0.72rem; }
 .eval-error { color: #f87171; font-size: 0.72rem; }
+
+/* ── Lichess opening explorer panel ─────────────────────────────────────────── */
+.explorer-panel {
+  background: var(--bg-card2, rgba(255,255,255,0.05));
+  border: 1px solid var(--border, #3a3a4a);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  min-height: 32px;
+}
+.explorer-header {
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-muted, #aaa);
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.explorer-elo-badge {
+  background: #2d2d3f;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-size: 0.66rem;
+  color: #b58863;
+  font-weight: 600;
+}
+.explorer-move-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.explorer-move-row:hover { background: var(--btn-hover, rgba(255,255,255,0.07)); }
+.explorer-san {
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 0.8rem;
+  min-width: 36px;
+  color: var(--text-primary, #eee);
+}
+.explorer-bar-wrap {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  overflow: hidden;
+}
+.explorer-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: #b58863;
+  transition: width 0.3s;
+}
+.explorer-pct {
+  min-width: 30px;
+  text-align: right;
+  font-size: 0.72rem;
+  color: #b58863;
+  font-weight: 700;
+}
+.explorer-total {
+  min-width: 48px;
+  text-align: right;
+  font-size: 0.7rem;
+  color: var(--text-muted, #888);
+}
+.explorer-loading, .explorer-error, .explorer-empty {
+  font-size: 0.72rem;
+  color: var(--text-muted, #aaa);
+  padding: 2px 0;
+}
+.explorer-error { color: #f87171; }
+.explorer-connect-hint {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted, #888);
+  padding: 6px 10px;
+  border: 1px dashed var(--border, #3a3a4a);
+  border-radius: 8px;
+}
+
+/* ── Freq-weighted training toggle ───────────────────────────────────────────── */
+.freq-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  background: rgba(181,136,99,0.1);
+  border: 1px solid rgba(181,136,99,0.25);
+  border-radius: 8px;
+  font-size: 0.78rem;
+}
+.freq-mode-label { color: #b58863; font-weight: 600; }
+.toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border-mid, #555);
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.toggle.on { background: #b58863; }
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.toggle.on .toggle-knob { transform: translateX(16px); }
 
 @media (max-width: 800px) {
   .ot-body { flex-direction: column; align-items: center; }

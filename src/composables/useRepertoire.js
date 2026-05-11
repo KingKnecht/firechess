@@ -203,6 +203,20 @@ export function useRepertoire() {
     if (found) found[0].preferred = preferred
   }
 
+  /**
+   * Set or clear a chapter name on a node.
+   * Pass empty string to remove the chapter marker.
+   */
+  function setChapterName(repId, nodeId, name) {
+    const rep = repertoires.value.find(r => r.id === repId)
+    if (!rep) return
+    const found = findNode(rep.root, nodeId)
+    if (!found) return
+    const node = found[0]
+    if (name.trim()) node.chapterName = name.trim()
+    else delete node.chapterName
+  }
+
   return {
     repertoires,
     addRepertoire,
@@ -211,6 +225,7 @@ export function useRepertoire() {
     addMove,
     removeNode,
     setAnnotation,
+    setChapterName,
     importTree,
     importTreeWithChapters,
     setPreferred,

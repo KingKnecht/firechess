@@ -257,3 +257,60 @@ export function parsePgnToTree(pgnText, fromFen = null) {
   const trees = parsePgnToTrees(pgnText, fromFen)
   return trees[0] ?? makeRoot(fromFen ?? undefined)
 }
+
+/**
+ * Serialize a repertoire tree back to a PGN string with variations.
+ * The root node has no san (it's the starting position).
+ * Annotations are written as { comment } blocks.
+ */
+export function treeToPgn(root, repName = '') {
+  const headers = [
+    `[Event "${repName}"]`,
+    '[Site "FireChess"]',
+    `[Date "${new Date().toISOString().slice(0, 10)}"]`,
+    '[White "?"]',
+    '[Black "?"]',
+    '[Result "*"]',
+  ].join('\n')
+
+  // chess.js instance to track move numbers
+  const chess = new Chess(root.fen ?? undefined)
+  const startFen = root.fen
+
+  function moveNumber(fen) {
+    // fullmove number from FEN field 6, and side to move from field 2
+    const parts = fen.split(' ')
+    const num = parseInt(parts[5])
+    const side = parts[1]
+    return { num, side }
+  }
+
+  function serializeChildren(children, parentFen, firstMove) {
+    if (!children?.length) return ''
+    const [main, ...variants] = children
+    let out = ''
+
+    // Main line move
+    const { num, side } = moveNumber(parentFen)
+    if (firstMove || side === 'w') out += `${num}${side === 'w' ? '.' : '...'} `
+    out += main.san
+    if (main.annotation) out += ` { ${main.annotation.replace(/[{}]/g, '')} } `
+
+    // Variations (siblings)
+    for (const v of variants) {
+      const { num: vn, side: vs } = moveNumber(parentFen)
+      let vout = `( ${vn}${vs === 'w' ? '.' : '...'} ${v.san}`
+      if (v.annotation) vout += ` { ${v.annotation.replace(/[{}]/g, '')} } `
+      vout += serializeChildren(v.children, v.fen, false)
+      vout += ') '
+      out += ' ' + vout
+    }
+
+    // Continue main line
+    out += serializeChildren(main.children, main.fen, false)
+    return out
+  }
+
+  const moves = serializeChildren(root.children, startFen, true).trim()
+  return `${headers}\n\n${moves} *`
+}
