@@ -518,8 +518,10 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Chess } from 'chess.js'
 import { showAllSquareNames } from '../composables/useSettings.js'
+import { useSound } from '../composables/useSound.js'
 
 const emit = defineEmits(['back'])
+const { playSound } = useSound()
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -923,6 +925,7 @@ function onGuidedPick(piece) {
   const correct = expected.color === piece.color && expected.type === piece.type
   guidedResults.value.push({ sq, expected, given: piece, correct })
   guidedFlash.value = correct ? 'correct' : 'wrong'
+  playSound(correct ? 'notify' : 'error')
   setTimeout(() => {
     guidedFlash.value = null
     if (guidedIdx.value < guidedSquares.value.length - 1) {

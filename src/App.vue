@@ -116,6 +116,7 @@ import { useOnlineGame } from './composables/useOnlineGame.js'
 import { useEvaluation } from './composables/useEvaluation.js'
 import { useBotGame } from './composables/useBotGame.js'
 import { useChessClock } from './composables/useChessClock.js'
+import { useSound } from './composables/useSound.js'
 import { showAllSquareNames, showMoveFlash, moveFlashContent } from './composables/useSettings.js'
 import { handleLichessCallback } from './composables/useLichessAuth.js'
 
@@ -171,6 +172,7 @@ const {
   init: clockInit, afterMove: clockAfterMove, stop: clockStop,
   syncFromServer: clockSyncFromServer, getAccurateSnapshot: clockGetAccurateSnapshot,
 } = useChessClock()
+const { playSound } = useSound()
 
 // ─────────────────────────────────────────────────────────────────────────────
 const mode = ref('local')
@@ -282,6 +284,10 @@ watch(status, (s) => {
 watch(clockFlagged, (side) => {
   if (side && status.value === 'playing') lostOnTime(side)
 })
+
+// Play low-time warning once when a clock first drops below threshold
+watch(whiteLow, (isLow) => { if (isLow) playSound('lowTime') })
+watch(blackLow, (isLow) => { if (isLow) playSound('lowTime') })
 
 
 watch(fen, (newFen) => {

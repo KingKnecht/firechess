@@ -78,6 +78,7 @@
               <div class="rep-card-actions">
                 <button class="btn small" @click="openEditor(rep)">✏️ Edit</button>
                 <button class="btn small primary" @click="openTraining(rep)">🎓 Train</button>
+                <button class="btn small seq-btn" @click="openTraining(rep, 'sequential')">🪜 Step by step</button>
                 <button v-if="getCardStats(rep).weakCount > 0" class="btn small weakness-btn" @click="openTrainingWeaknesses(rep)">🎯 Weaknesses</button>
                 <button class="btn small danger" @click="confirmDelete(rep)">🗑️</button>
               </div>
@@ -320,7 +321,13 @@
           @drop="onTrainerDrop"
         />
         <div :class="['train-feedback', trainFeedback]" v-if="trainFeedback">
-          {{ trainFeedback === 'correct' ? '✓ Correct!' : trainFeedback === 'wrong' ? '✗ Try again' : trainFeedback === 'allClear' ? '🏆 All weaknesses cleared!' : '🎉 Line complete!' }}
+          {{
+            trainFeedback === 'correct' ? '✓ Correct!' :
+            trainFeedback === 'wrong' ? '✗ Try again' :
+            trainFeedback === 'allClear' ? '🏆 All lines mastered!' :
+            trainFeedback === 'seqUnlock' ? '🔓 Next line unlocked!' :
+            '🎉 Line complete!'
+          }}
         </div>
 
         <!-- Variant picker overlay -->
@@ -351,8 +358,28 @@
           <button class="back-btn small" @click="subView = 'list'">← Repertoires</button>
         </div>
 
+        <!-- Sequential mode banner -->
+        <div v-if="trainMode === 'sequential'" class="seq-banner">
+          <div class="seq-header">
+            <span>🪜 Step by step</span>
+            <span class="seq-progress-label">
+              Line {{ seqState.focusIdx + 1 }} / {{ seqAllLines.length }}
+            </span>
+            <button class="btn tiny" style="margin-left:8px;" @click="trainMode = 'normal'">All lines</button>
+          </div>
+          <div class="seq-line-label" v-if="seqFocusLine">{{ seqFocusLine.label }}</div>
+          <div class="seq-dots">
+            <span
+              v-for="i in SEQ_THRESHOLD"
+              :key="i"
+              :class="['seq-dot', seqFocusCompletions >= i ? 'filled' : '']"
+            >●</span>
+            <span class="seq-dots-label">focus line completions</span>
+          </div>
+        </div>
+
         <!-- Line/chapter name banner -->
-        <div v-if="trainingLineNode?.chapterName" class="line-banner">
+        <div v-else-if="trainingLineNode?.chapterName" class="line-banner">
           📖 {{ trainingLineNode.chapterName }}
           <button class="btn tiny" style="margin-left:8px;" @click="trainingLineNode = null">All lines</button>
         </div>
@@ -431,11 +458,12 @@
 <script setup>
 import { ref, shallowRef, triggerRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Chess } from 'chess.js'
-import { useRepertoire, countNodes, findNode, getRepLines } from '../composables/useRepertoire.js'
+import { useRepertoire, countNodes, findNode, getRepLines, getLeafLines } from '../composables/useRepertoire.js'
 import { parsePgnToTree, parsePgnGames, treeToPgn } from '../utils/pgnVariantParser.js'
 import RepertoireTree from './RepertoireTree.vue'
 import ChessBoard from './ChessBoard.vue'
 import { lichessToken, lichessUser } from '../composables/useLichessAuth.js'
+import { useSound } from '../composables/useSound.js'
 import {
   explorerData, explorerLoading, explorerError, explorerIsMasters,
   explorerRangeMin, explorerRangeMax, EXPLORER_RMIN, EXPLORER_RMAX, EXPLORER_RSTEP,
@@ -446,6 +474,7 @@ import {
 const emit = defineEmits(['back'])
 
 const { repertoires, addRepertoire, deleteRepertoire, addMove, removeNode, setAnnotation, setChapterName, importTree, importTreeWithChapters, setPreferred } = useRepertoire()
+const { playSound } = useSound()
 
 // ── Shared state ────────────────────────────────────────────────────────────
 const subView = ref('list')
@@ -493,6 +522,10 @@ function openTraining(rep, mode = 'normal', lineNode = null) {
   activeOpponentLines.value = saved.activeOpponentLines
   trainMode.value = mode
   trainingLineNode.value = lineNode
+  if (mode === 'sequential') {
+    seqState.value = saved.seqState ?? { unlockedCount: 1, focusIdx: 0, completions: {} }
+    seqActiveLine.value = null
+  }
   variantPickerChoices.value = null
   subView.value = 'train'
   restartTraining()
@@ -745,9 +778,17 @@ const trainerCurrentNode = ref(null)
 const trainFeedback = ref('')
 const trainStats = ref({ correct: 0, wrong: 0, lines: 0 })
 const hintRequested = ref(false)
-const trainMode = ref('normal') // 'normal' | 'weaknesses'
+const trainMode = ref('normal') // 'normal' | 'weaknesses' | 'sequential'
 const streak = ref(0)
 const currentLineClean = ref(true) // false if any mistake was made in the current line
+
+// ── Sequential mode state ─────────────────────────────────────────────────────
+const SEQ_THRESHOLD = 3 // completions needed to unlock next line
+const seqState = ref({ unlockedCount: 1, focusIdx: 0, completions: {} })
+const seqActiveLine = ref(null) // { leafId, path: node[], label }
+const seqAllLines = computed(() => currentRep.value ? getLeafLines(currentRep.value.root) : [])
+const seqFocusLine = computed(() => seqAllLines.value[seqState.value.focusIdx] ?? null)
+const seqFocusCompletions = computed(() => seqState.value.completions[seqFocusLine.value?.leafId] ?? 0)
 
 // ── Variant picker (opponent branching) ───────────────────────────────────────
 // When opponent has multiple choices and no stored preference, show picker.
@@ -774,6 +815,16 @@ const trainingLineAllowedIds = computed(() => {
   addSubtree(trainingLineNode.value)
   return ids
 })
+
+const seqLineAllowedIds = computed(() => {
+  if (trainMode.value !== 'sequential' || !seqActiveLine.value) return null
+  return new Set(seqActiveLine.value.path.map(n => n.id))
+})
+
+// Single source of truth for move restriction — used everywhere instead of trainingLineAllowedIds directly
+const activeAllowedIds = computed(() =>
+  trainMode.value === 'sequential' ? seqLineAllowedIds.value : trainingLineAllowedIds.value
+)
 
 // ── Card expanded lines ───────────────────────────────────────────────────────
 const expandedReps = ref(new Set())
@@ -995,8 +1046,9 @@ function loadRepTrainStats(repId) {
       wrongCounts: new Map(Object.entries(s.wrongCounts ?? {})),
       preferredMoves: new Map(Object.entries(s.preferredMoves ?? {})),
       activeOpponentLines: new Map(Object.entries(aol).map(([k, v]) => [k, new Set(v)])),
+      seqState: s.seqState ?? null,
     }
-  } catch { return { knownNodeIds: new Set(), wrongCounts: new Map(), preferredMoves: new Map(), activeOpponentLines: new Map() } }
+  } catch { return { knownNodeIds: new Set(), wrongCounts: new Map(), preferredMoves: new Map(), activeOpponentLines: new Map(), seqState: null } }
 }
 
 function saveRepTrainStats(repId) {
@@ -1010,6 +1062,7 @@ function saveRepTrainStats(repId) {
       wrongCounts: Object.fromEntries(wrongCounts.value),
       preferredMoves: Object.fromEntries(preferredMoves.value),
       activeOpponentLines: aolObj,
+      seqState: seqState.value,
       lastPracticed: Date.now(),
     }
     localStorage.setItem(TRAIN_KEY, JSON.stringify(all))
@@ -1056,6 +1109,8 @@ function resetProgress() {
   wrongCounts.value = new Map()
   preferredMoves.value = new Map()
   streak.value = 0
+  seqState.value = { unlockedCount: 1, focusIdx: 0, completions: {} }
+  seqActiveLine.value = null
   saveRepTrainStats(currentRep.value.id)
 }
 
@@ -1084,9 +1139,7 @@ const trainerArrows = computed(() => {
 const trainerLegalDots = computed(() => {
   if (!trainerSelected.value || !trainerCurrentNode.value) return []
   const allMoves = trainerChess.value.moves({ square: trainerSelected.value, verbose: true })
-  const allowedIds = trainingLineAllowedIds.value
-  const preferredChildId = preferredMoves.value.get(trainerCurrentNode.value.id)
-  // Only show dots for moves in the current repertoire (scoped to preferred if set)
+  const allowedIds = activeAllowedIds.value
   const validSans = new Set(
     (trainerCurrentNode.value.children ?? [])
       .filter(c => (!allowedIds || allowedIds.has(c.id)) && (!preferredChildId || c.id === preferredChildId))
@@ -1105,12 +1158,38 @@ function restartTraining() {
   streak.value = 0
   currentLineClean.value = true
   variantPickerChoices.value = null
+  if (trainMode.value === 'sequential') {
+    startSeqRound()
+    return
+  }
   if (currentRep.value?.color === 'b') {
     nextTick(() => opponentMove())
   } else {
     // User plays first — check if multiple user responses exist at root
     nextTick(() => checkUserVariantPick(currentRep.value?.root))
   }
+}
+
+function startSeqRound() {
+  if (!currentRep.value) return
+  const lines = getLeafLines(currentRep.value.root)
+  if (!lines.length) return
+  const { unlockedCount, focusIdx, completions } = seqState.value
+  const pool = lines.slice(0, unlockedCount)
+  const weights = pool.map((l, i) => i === focusIdx ? SEQ_THRESHOLD : 1)
+  const chosen = weightedChoice(pool, weights)
+  seqActiveLine.value = chosen
+  // Reset board without resetting stats
+  trainerChess.value = new Chess()
+  trainerSelected.value = null
+  trainerCurrentNode.value = currentRep.value.root
+  trainFeedback.value = ''
+  hintRequested.value = false
+  currentLineClean.value = true
+  variantPickerChoices.value = null
+  nextTick(() => {
+    if (currentRep.value?.color === 'b') opponentMove()
+  })
 }
 
 function weightedChoice(items, weights) {
@@ -1128,8 +1207,8 @@ function opponentMove() {
   if (!node?.children?.length) return
   let children = node.children
   // Restrict to line scope if training a specific line
-  if (trainingLineAllowedIds.value) {
-    const scoped = children.filter(c => trainingLineAllowedIds.value.has(c.id))
+  if (activeAllowedIds.value) {
+    const scoped = children.filter(c => activeAllowedIds.value.has(c.id))
     if (scoped.length > 0) children = scoped
   }
   // Respect user-configured active opponent lines (from editor line manager)
@@ -1170,10 +1249,11 @@ function opponentMove() {
   }
   const child = weightedChoice(children, weights)
   try {
-    trainerChess.value.move(child.san)
+    const result = trainerChess.value.move(child.san)
     triggerRef(trainerChess)
     trainerCurrentNode.value = child
     hintRequested.value = false
+    playSound(result?.captured ? 'capture' : 'move')
 
     // If the opponent's move is the last move in the line, complete it
     if (!child.children?.length) {
@@ -1205,8 +1285,8 @@ function checkUserVariantPick(node) {
   // The NEXT move belongs to the user if node's FEN has user's color to move
   // We check the children — they represent the user's responses
   let children = node.children ?? []
-  if (trainingLineAllowedIds.value) {
-    const scoped = children.filter(c => trainingLineAllowedIds.value.has(c.id))
+  if (activeAllowedIds.value) {
+    const scoped = children.filter(c => activeAllowedIds.value.has(c.id))
     if (scoped.length > 0) children = scoped
   }
   if (children.length <= 1) return // only one option, no choice needed
@@ -1263,7 +1343,7 @@ function onTrainerSquareClick(sq) {
       trainerSelected.value = null
       if (!san) return
 
-      const allowedIds = trainingLineAllowedIds.value
+      const allowedIds = activeAllowedIds.value
       const preferredChildId = preferredMoves.value.get(trainerCurrentNode.value.id)
       const match = trainerCurrentNode.value.children.find(c =>
         c.san === san &&
@@ -1275,6 +1355,7 @@ function onTrainerSquareClick(sq) {
         hintRequested.value = false
         trainStats.value.correct++
         trainerCurrentNode.value = match
+        playSound(target.captured ? 'capture' : 'move')
         showFeedback('correct')
 
         if (!match.children.length) {
@@ -1322,9 +1403,51 @@ function onTrainerDrop({ from, to }) {
   onTrainerSquareClick(to)
 }
 
-function showFeedback(type) { trainFeedback.value = type }
+function showFeedback(type) {
+  trainFeedback.value = type
+  if (type === 'done' || type === 'allClear' || type === 'seqUnlock') playSound('notify')
+  else if (type === 'wrong') playSound('error')
+}
 
 function nextLineOrRestart() {
+  // Sequential mode: record completion, potentially unlock next line
+  if (trainMode.value === 'sequential') {
+    const leafId = seqActiveLine.value?.leafId
+    if (leafId) {
+      const state = { ...seqState.value, completions: { ...seqState.value.completions } }
+      state.completions[leafId] = (state.completions[leafId] ?? 0) + 1
+      trainStats.value.lines++
+      const lines = getLeafLines(currentRep.value.root)
+      const focusLine = lines[state.focusIdx]
+      const focusCompletions = state.completions[focusLine?.leafId] ?? 0
+      if (focusLine && leafId === focusLine.leafId && focusCompletions >= SEQ_THRESHOLD) {
+        if (state.unlockedCount < lines.length) {
+          // Unlock next line
+          state.unlockedCount++
+          state.focusIdx = state.unlockedCount - 1
+          seqState.value = state
+          saveRepTrainStats(currentRep.value.id)
+          showFeedback('seqUnlock')
+          setTimeout(() => { trainFeedback.value = ''; startSeqRound() }, 2000)
+          return
+        } else {
+          // All lines unlocked — check if all mastered
+          const allMastered = lines.every(l => (state.completions[l.leafId] ?? 0) >= SEQ_THRESHOLD)
+          seqState.value = state
+          saveRepTrainStats(currentRep.value.id)
+          if (allMastered) {
+            showFeedback('allClear')
+            return
+          }
+        }
+      } else {
+        seqState.value = state
+        saveRepTrainStats(currentRep.value.id)
+      }
+    }
+    startSeqRound()
+    return
+  }
   // In weakness mode, check if all weaknesses are resolved
   if (trainMode.value === 'weaknesses' && !hasWeakInSubtree(currentRep.value.root)) {
     showFeedback('allClear')
@@ -2070,6 +2193,29 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-size: 0.82rem;
   font-weight: 700;
 }
+
+/* ── Sequential mode ─────────────────────────────────────────────────────────── */
+.seq-btn { color: #60a5fa; border-color: #60a5fa33; }
+.seq-btn:hover:not(:disabled) { background: #60a5fa22; }
+.seq-banner {
+  background: #0f2340;
+  border: 1px solid #60a5fa44;
+  color: #93c5fd;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.seq-header { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+.seq-progress-label { margin-left: auto; font-size: 0.78rem; opacity: 0.8; }
+.seq-line-label { font-size: 0.75rem; color: #bfdbfe; opacity: 0.85; font-style: italic; }
+.seq-dots { display: flex; align-items: center; gap: 4px; }
+.seq-dot { font-size: 1rem; color: #1e3a5f; transition: color 0.3s; }
+.seq-dot.filled { color: #60a5fa; }
+.seq-dots-label { font-size: 0.7rem; color: #60a5fa88; margin-left: 4px; }
+.train-feedback.seqUnlock { background: #0f2340; color: #60a5fa; }
 .train-annotation {
   font-size: 0.82rem;
   color: var(--text-primary);

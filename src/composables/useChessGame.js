@@ -1,7 +1,9 @@
 import { ref, shallowRef, triggerRef, computed } from 'vue'
 import { Chess } from 'chess.js'
+import { useSound } from './useSound.js'
 
 export function useChessGame() {
+  const { playSound } = useSound()
   const chess = shallowRef(new Chess())
   const fen = ref(chess.value.fen())
   const fenHistory = ref([chess.value.fen()])  // fenHistory[i] = position after move i (0 = start)
@@ -95,6 +97,7 @@ export function useChessGame() {
       legalMoves.value = chess.value
         .moves({ square, verbose: true })
         .map((m) => m.to)
+      playSound('select')
     }
 
     return false
@@ -109,6 +112,7 @@ export function useChessGame() {
     if (!target) {
       selectedSquare.value = null
       legalMoves.value = []
+      playSound('outOfBound')
       return false
     }
 
@@ -129,6 +133,7 @@ export function useChessGame() {
     legalMoves.value = []
     promotionPending.value = null
     updateStatus()
+    playSound(result.captured ? 'capture' : 'move')
     return true
   }
 

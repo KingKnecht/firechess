@@ -99,6 +99,31 @@ export function getRepLines(root) {
   return lines
 }
 
+/**
+ * Enumerate all root-to-leaf paths in depth-first order.
+ * Returns [{ leafId, path: node[], label }]
+ * label = nearest ancestor chapterName, or last ≤3 SANs joined by spaces.
+ */
+export function getLeafLines(root) {
+  const lines = []
+  function walk(node, path, inheritedLabel) {
+    const label = node.chapterName || inheritedLabel
+    const p = [...path, node]
+    if (!node.children?.length) {
+      const sanLabel = p
+        .filter(n => n.san)
+        .slice(-3)
+        .map(n => n.san)
+        .join(' ')
+      lines.push({ leafId: node.id, path: p, label: label || sanLabel || '—' })
+    } else {
+      for (const c of node.children) walk(c, p, label)
+    }
+  }
+  for (const c of root.children ?? []) walk(c, [root], root.chapterName || '')
+  return lines
+}
+
 // ── Reactive store ────────────────────────────────────────────────────────────
 
 const repertoires = ref(load())
